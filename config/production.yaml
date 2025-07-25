@@ -1,0 +1,23 @@
+# Production Configuration
+database:
+  url: "postgresql://user:password@localhost:5432/magicbot"
+  echo: false
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+
+exchanges:
+  binance:
+    sandbox: false
+    api_key: ""
+    api_secret: ""
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+risk:
+  max_position_size: 0.02
+  max_daily_loss: 0.01

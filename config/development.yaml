@@ -1,0 +1,34 @@
+app:
+  name: "Magicbot"
+  version: "0.1.0"
+  debug: true
+
+database:
+  url: "${DATABASE_URL}"
+  pool_size: 10
+  max_overflow: 20
+
+redis:
+  url: "${REDIS_URL}"
+  decode_responses: true
+
+exchange:
+  binance:
+    testnet: true
+    api_key: "${BINANCE_API_KEY}"
+    secret_key: "${BINANCE_SECRET_KEY}"
+
+risk_management:
+  max_position_size: 0.1
+  max_daily_loss: 0.05
+  stop_loss_percentage: 0.02
+
+strategies:
+  enabled:
+    - ma_crossover
+  
+  ma_crossover:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    fast_period: 10
+    slow_period: 30
+    position_size: 0.01
