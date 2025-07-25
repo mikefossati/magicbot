@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import os
+import ccxt
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.exchanges.binance_exchange import BinanceExchange

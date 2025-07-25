@@ -1,4 +1,6 @@
 import asyncio
+import ssl
+import os
 from binance import AsyncClient
 from binance.exceptions import BinanceAPIException
 from typing import Dict, List, Optional
@@ -6,47 +8,87 @@ from decimal import Decimal
 import structlog
 
 from .base import ExchangeInterface, Order, Balance, MarketData
-from src.core.exceptions import ExchangeError
-from src.core.config import config
+from ..core.exceptions import ExchangeError
+from ..core.config import config
 
 logger = structlog.get_logger()
 
 class BinanceExchange(ExchangeInterface):
-    """Binance exchange implementation"""
+    """Binance exchange implementation compatible with standard python-binance"""
     
     def __init__(self):
         self.client: Optional[AsyncClient] = None
         self.testnet = config['exchange']['binance']['testnet']
         self.api_key = config['exchange']['binance']['api_key']
         self.secret_key = config['exchange']['binance']['secret_key']
+        self._connected = False
         
     async def connect(self) -> bool:
         """Establish connection to Binance"""
-        try:
-            self.client = await AsyncClient.create(
-                api_key=self.api_key,
-                api_secret=self.secret_key,
-                testnet=self.testnet
-            )
-            
-            # Test connection
-            await self.client.ping()
-            
-            logger.info("Connected to Binance", testnet=self.testnet)
+        if self._connected:
             return True
+            
+        try:
+            # Set environment variable to disable SSL verification (development only)
+            original_verify = os.environ.get('PYTHONHTTPSVERIFY')
+            os.environ['PYTHONHTTPSVERIFY'] = '0'
+            
+            try:
+                # Create Binance client with basic parameters
+                self.client = await AsyncClient.create(
+                    api_key=self.api_key,
+                    api_secret=self.secret_key,
+                    testnet=self.testnet
+                )
+                
+                # Test connection
+                await self.client.ping()
+                
+                self._connected = True
+                
+                logger.info("Connected to Binance", 
+                           testnet=self.testnet, 
+                           ssl_disabled=True)
+                return True
+                
+            finally:
+                # Restore original SSL verification setting
+                if original_verify is not None:
+                    os.environ['PYTHONHTTPSVERIFY'] = original_verify
+                elif 'PYTHONHTTPSVERIFY' in os.environ:
+                    del os.environ['PYTHONHTTPSVERIFY']
             
         except Exception as e:
             logger.error("Failed to connect to Binance", error=str(e))
+            self._connected = False
+            if self.client:
+                try:
+                    await self.client.close_connection()
+                except:
+                    pass
+                self.client = None
             raise ExchangeError(f"Connection failed: {e}")
     
     async def disconnect(self) -> None:
-        """Close connection to Binance"""
-        if self.client:
-            await self.client.close_connection()
+        """Close connection to Binance properly"""
+        if not self._connected:
+            return
+            
+        try:
+            if self.client:
+                await self.client.close_connection()
+                self.client = None
+            
+            self._connected = False
             logger.info("Disconnected from Binance")
+        except Exception as e:
+            logger.warning("Error during disconnect", error=str(e))
     
     async def get_account_balance(self) -> List[Balance]:
         """Get account balance for all assets"""
+        if not self.client or not self._connected:
+            raise ExchangeError("Not connected to exchange")
+            
         try:
             account_info = await self.client.get_account()
             balances = []
@@ -68,6 +110,9 @@ class BinanceExchange(ExchangeInterface):
     
     async def place_order(self, order: Order) -> str:
         """Place a trading order"""
+        if not self.client or not self._connected:
+            raise ExchangeError("Not connected to exchange")
+            
         try:
             order_params = {
                 'symbol': order.symbol,
@@ -96,6 +141,9 @@ class BinanceExchange(ExchangeInterface):
     
     async def cancel_order(self, symbol: str, order_id: str) -> bool:
         """Cancel an existing order"""
+        if not self.client or not self._connected:
+            raise ExchangeError("Not connected to exchange")
+            
         try:
             await self.client.cancel_order(symbol=symbol, orderId=order_id)
             logger.info("Order cancelled", order_id=order_id, symbol=symbol)
@@ -107,6 +155,9 @@ class BinanceExchange(ExchangeInterface):
     
     async def get_order_status(self, symbol: str, order_id: str) -> Dict:
         """Get order status"""
+        if not self.client or not self._connected:
+            raise ExchangeError("Not connected to exchange")
+            
         try:
             return await self.client.get_order(symbol=symbol, orderId=order_id)
         except BinanceAPIException as e:
@@ -115,6 +166,9 @@ class BinanceExchange(ExchangeInterface):
     
     async def get_market_data(self, symbol: str) -> MarketData:
         """Get current market data for symbol"""
+        if not self.client or not self._connected:
+            raise ExchangeError("Not connected to exchange")
+            
         try:
             ticker = await self.client.get_symbol_ticker(symbol=symbol)
             return MarketData(
@@ -129,6 +183,9 @@ class BinanceExchange(ExchangeInterface):
     
     async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> List[Dict]:
         """Get historical kline/candlestick data"""
+        if not self.client or not self._connected:
+            raise ExchangeError("Not connected to exchange")
+            
         try:
             klines = await self.client.get_klines(
                 symbol=symbol,
@@ -153,3 +210,13 @@ class BinanceExchange(ExchangeInterface):
         except BinanceAPIException as e:
             logger.error("Failed to get klines", error=str(e))
             raise ExchangeError(f"Klines retrieval failed: {e}")
+    
+    async def __aenter__(self):
+        """Async context manager entry"""
+        await self.connect()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.disconnect()
+        return False  # Don't suppress exceptions

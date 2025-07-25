@@ -4,21 +4,15 @@ import structlog
 import asyncio
 from contextlib import asynccontextmanager
 
-from src.core.config import settings, config
-from src.exchanges.binance_exchange import BinanceExchange
-from src.api.routes import trading, strategies
+from ..core.config import settings, config
+from ..exchanges.binance_exchange import BinanceExchange
+from ..database.connection import db
+from ..logging.logger_config import setup_logging
+from ..web.dashboard import setup_web_routes
+from .routes import trading, strategies
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.dev.ConsoleRenderer()
-    ],
-    wrapper_class=structlog.make_filtering_bound_logger(30),  # INFO level
-    logger_factory=structlog.PrintLoggerFactory(),
-    cache_logger_on_first_use=True,
-)
-
+# Setup logging
+setup_logging(log_level=getattr(settings, 'log_level', 'INFO'))
 logger = structlog.get_logger()
 
 # Global exchange instance
@@ -30,14 +24,29 @@ async def lifespan(app: FastAPI):
     global exchange
     
     # Startup
-    logger.info("Starting Magicbot Trading System", version=settings.version)
+    logger.info("Starting Magicbot Trading System", version=getattr(settings, 'version', '2.0.0'))
+    
+    # Initialize database
+    try:
+        await db.initialize()
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.error("Database initialization failed", error=str(e))
+        # Continue without database for development
+        logger.warning("Continuing without database connection")
     
     # Initialize exchange connection
     exchange = BinanceExchange()
-    await exchange.connect()
+    try:
+        await exchange.connect()
+        logger.info("Exchange connected")
+    except Exception as e:
+        logger.error("Exchange connection failed", error=str(e))
+        logger.warning("Continuing without exchange connection")
     
-    # Store exchange in app state
+    # Store instances in app state
     app.state.exchange = exchange
+    app.state.db = db
     
     yield
     
@@ -45,12 +54,13 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Magicbot Trading System")
     if exchange:
         await exchange.disconnect()
+    await db.close()
 
 app = FastAPI(
     title="Magicbot Trading System",
     description="Advanced Cryptocurrency Algorithmic Trading Platform",
-    version=settings.version,
-    debug=settings.debug,
+    version=getattr(settings, 'version', '2.0.0'),
+    debug=getattr(settings, 'debug', True),
     lifespan=lifespan
 )
 
@@ -63,7 +73,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Setup web dashboard routes
+setup_web_routes(app)
+
+# Include API routers
 app.include_router(trading.router, prefix="/api/v1/trading", tags=["trading"])
 app.include_router(strategies.router, prefix="/api/v1/strategies", tags=["strategies"])
 
@@ -72,7 +85,7 @@ async def root():
     """Health check endpoint"""
     return {
         "name": "Magicbot Trading System",
-        "version": settings.version,
+        "version": getattr(settings, 'version', '2.0.0'),
         "status": "online",
         "exchange_connected": exchange is not None
     }
@@ -84,14 +97,23 @@ async def health_check():
         # Test exchange connection
         exchange_status = "connected" if exchange else "disconnected"
         if exchange:
-            # Try to get account balance as a connectivity test
-            await exchange.get_account_balance()
+            try:
+                await exchange.get_account_balance()
+            except Exception as e:
+                exchange_status = f"error: {str(e)}"
+        
+        # Test database connection
+        db_status = "connected"
+        try:
+            await db.fetch_one("SELECT 1")
+        except Exception as e:
+            db_status = f"error: {str(e)}"
         
         return {
             "status": "healthy",
             "exchange": exchange_status,
-            "database": "connected",  # TODO: Add database health check
-            "redis": "connected"      # TODO: Add Redis health check
+            "database": db_status,
+            "version": getattr(settings, 'version', '2.0.0')
         }
     except Exception as e:
         logger.error("Health check failed", error=str(e))
