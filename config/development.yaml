@@ -26,9 +26,126 @@ risk_management:
 strategies:
   enabled:
     - ma_crossover
+    - rsi_strategy
+    - bollinger_bands
+    - breakout_strategy
+    - macd_strategy
+    - momentum_strategy
+    - stochastic_strategy
+    - mean_reversion_rsi
+    - ema_scalping_strategy
+    - day_trading_strategy
   
   ma_crossover:
     symbols: ["BTCUSDT", "ETHUSDT"]
     fast_period: 10
     slow_period: 30
     position_size: 0.01
+  
+  rsi_strategy:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    rsi_period: 14
+    oversold: 30
+    overbought: 70
+    position_size: 0.01
+  
+  bollinger_bands:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    period: 20
+    std_dev: 2.0
+    mean_reversion_threshold: 0.02
+    position_size: 0.01
+  
+  breakout_strategy:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    lookback_period: 20
+    breakout_threshold: 1.02
+    volume_confirmation: true
+    min_volatility: 0.005
+    position_size: 0.01
+  
+  macd_strategy:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    fast_period: 12
+    slow_period: 26
+    signal_period: 9
+    histogram_threshold: 0.0
+    position_size: 0.01
+  
+  momentum_strategy:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    momentum_period: 14
+    sma_period: 20
+    momentum_threshold: 5.0
+    volume_confirmation: true
+    position_size: 0.01
+  
+  stochastic_strategy:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    k_period: 14
+    d_period: 3
+    smooth_period: 3
+    oversold: 20
+    overbought: 80
+    divergence_lookback: 5
+    position_size: 0.01
+  
+  mean_reversion_rsi:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    rsi_period: 14
+    ma_period: 50
+    extreme_oversold: 15
+    oversold: 30
+    overbought: 70
+    extreme_overbought: 85
+    rsi_ma_period: 5
+    volume_confirmation: true
+    position_size: 0.01
+  
+  ema_scalping_strategy:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    fast_ema: 5
+    slow_ema: 13
+    signal_ema: 21
+    volume_period: 10
+    volume_multiplier: 1.5
+    rsi_period: 14
+    rsi_overbought: 75
+    rsi_oversold: 25
+    stop_loss_pct: 0.5
+    take_profit_pct: 1.0
+    risk_reward_ratio: 2.0
+    min_price_movement: 0.1
+    consolidation_period: 3
+    position_size: 0.02
+  
+  day_trading_strategy:
+    symbols: ["BTCUSDT", "ETHUSDT"]
+    fast_ema: 8
+    medium_ema: 21
+    slow_ema: 50
+    rsi_period: 14
+    rsi_overbought: 70
+    rsi_oversold: 30
+    rsi_neutral_high: 60
+    rsi_neutral_low: 40
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+    volume_period: 20
+    volume_multiplier: 1.5
+    pivot_period: 10
+    support_resistance_threshold: 0.2
+    stop_loss_pct: 1.5
+    take_profit_pct: 2.5
+    trailing_stop_pct: 1.0
+    max_daily_trades: 3
+    session_start: "00:01"
+    session_end: "23:59"
+    avoid_news_minutes: 30
+    position_size: 0.02
+    # Leverage settings
+    use_leverage: false          # Enable/disable leverage trading
+    leverage: 3.0               # Leverage ratio (1x = no leverage)
+    max_leverage: 10.0          # Maximum allowed leverage
+    leverage_risk_factor: 0.6   # Position size reduction factor when using leverage (0.6 = 40% reduction)
