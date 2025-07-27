@@ -6,7 +6,8 @@ from decimal import Decimal
 import structlog
 from dataclasses import dataclass, field
 
-from ..strategies.base import BaseStrategy, Signal
+from ..strategies.base import BaseStrategy
+from ..strategies.signal import Signal
 from ..data.historical_manager import HistoricalDataManager
 
 logger = structlog.get_logger()
@@ -54,22 +55,27 @@ class BacktestEngine:
     on historical data with realistic trading costs and constraints
     """
     
-    def __init__(self, config: BacktestConfig):
-        self.config = config
-        self.capital = config.initial_capital
-        self.initial_capital = config.initial_capital
-        
-        # Trading state
+    def __init__(self, initial_balance: float = 10000.0, fast_mode: bool = False):
+        """Initialize backtesting engine"""
+        self.initial_balance = initial_balance
+        self.initial_capital = initial_balance  # Backward compatibility
+        self.balance = initial_balance
+        self.capital = initial_balance  # Backward compatibility
         self.positions: Dict[str, Position] = {}
         self.trades: List[Trade] = []
-        self.equity_curve: List[Tuple[datetime, float]] = []
-        self.signals_log: List[Dict] = []
-        
-        # Performance metrics
+        self.signals: List[Signal] = []
+        self.current_time: Optional[datetime] = None
+        self.portfolio_values: List[Dict] = []
+        self.logger = structlog.get_logger()
+        self.fast_mode = fast_mode  # Skip detailed tracking for optimization
         self.current_time: Optional[datetime] = None
         self.total_trades = 0
         self.winning_trades = 0
         self.losing_trades = 0
+        self.commission_rate = 0.001  # 0.1% commission
+        self.slippage_rate = 0.0005   # 0.05% slippage
+        self.position_sizing = "fixed"  # 'fixed', 'percentage', 'kelly'
+        self.position_size = 0.1      # 10% of capital or fixed amount
         
     async def run_backtest(
         self,
@@ -91,7 +97,7 @@ class BacktestEngine:
             Dictionary containing backtest results and performance metrics
         """
         logger.info("Starting backtest",
-                   strategy=strategy.name,
+                   strategy=strategy.strategy_name,
                    start_date=start_date,
                    end_date=end_date,
                    initial_capital=self.initial_capital)
@@ -104,7 +110,7 @@ class BacktestEngine:
         
         if len(all_timestamps) == 0:
             logger.warning("No timestamps found in historical data")
-            return self._create_empty_results(strategy.name, start_date, end_date)
+            return self._create_empty_results(strategy.strategy_name, start_date, end_date)
         
         logger.info("Processing timestamps", total_timestamps=len(all_timestamps))
         
@@ -156,7 +162,7 @@ class BacktestEngine:
             self.equity_curve.append((all_timestamps[-1], final_equity))
         
         # Calculate performance metrics
-        results = self._calculate_performance_metrics(strategy.name, start_date, end_date)
+        results = self._calculate_performance_metrics(strategy.strategy_name, start_date, end_date)
         
         logger.info("Backtest completed",
                    total_trades=len(self.trades),
@@ -215,7 +221,14 @@ class BacktestEngine:
         
         for symbol, df in historical_data.items():
             if len(df) > 0:
-                timestamps = pd.to_datetime(df['timestamp'], unit='ms')
+                # Handle timestamp as either column or index
+                if 'timestamp' in df.columns:
+                    timestamps = pd.to_datetime(df['timestamp'], unit='ms')
+                else:
+                    # Timestamp is the index
+                    timestamps = df.index
+                    if not isinstance(timestamps[0], pd.Timestamp):
+                        timestamps = pd.to_datetime(timestamps, unit='ms')
                 all_timestamps.update(timestamps)
         
         return sorted(all_timestamps)
@@ -234,17 +247,31 @@ class BacktestEngine:
                 continue
             
             # Find the closest timestamp (latest data point before or at target time)
-            mask = df['timestamp'] <= timestamp_ms
-            if mask.any():
-                row = df[mask].iloc[-1]
-                market_data[symbol] = {
-                    'open': float(row['open']),
-                    'high': float(row['high']),
-                    'low': float(row['low']),
-                    'close': float(row['close']),
-                    'volume': float(row['volume']),
-                    'timestamp': int(row['timestamp'])
-                }
+            if 'timestamp' in df.columns:
+                # Timestamp is a column
+                mask = df['timestamp'] <= timestamp_ms
+                if mask.any():
+                    row = df[mask].iloc[-1]
+                    timestamp_val = int(row['timestamp'])
+                else:
+                    continue
+            else:
+                # Timestamp is the index
+                mask = df.index <= timestamp
+                if mask.any():
+                    row = df[mask].iloc[-1]
+                    timestamp_val = int(row.name.timestamp() * 1000)
+                else:
+                    continue
+        
+            market_data[symbol] = {
+                'open': float(row['open']),
+                'high': float(row['high']),
+                'low': float(row['low']),
+                'close': float(row['close']),
+                'volume': float(row['volume']),
+                'timestamp': timestamp_val
+            }
         
         return market_data
     
@@ -262,15 +289,28 @@ class BacktestEngine:
                 continue
             
             # Get all data up to current time
-            mask = df['timestamp'] <= current_timestamp_ms
-            historical_df = df[mask]
+            if 'timestamp' in df.columns:
+                # Timestamp is a column
+                mask = df['timestamp'] <= current_timestamp_ms
+                historical_df = df[mask]
+            else:
+                # Timestamp is the index
+                mask = df.index <= current_time
+                historical_df = df[mask]
             
             if len(historical_df) > 0:
                 # Convert to list of dictionaries
                 data_list = []
-                for _, row in historical_df.iterrows():
+                for timestamp, row in historical_df.iterrows():
+                    # Handle timestamp as either column or index
+                    if 'timestamp' in historical_df.columns:
+                        timestamp_val = int(row['timestamp'])
+                    else:
+                        # Timestamp is the index
+                        timestamp_val = int(timestamp.timestamp() * 1000)
+                    
                     data_list.append({
-                        'timestamp': int(row['timestamp']),
+                        'timestamp': timestamp_val,
                         'open': float(row['open']),
                         'high': float(row['high']),
                         'low': float(row['low']),
@@ -317,7 +357,7 @@ class BacktestEngine:
         quantity = position_value / current_price
         
         # Check if we have enough capital
-        total_cost = position_value * (1 + self.config.commission_rate + self.config.slippage_rate)
+        total_cost = position_value * (1 + self.commission_rate + self.slippage_rate)
         
         if total_cost > self.capital:
             logger.debug("Insufficient capital for trade", 
@@ -326,7 +366,7 @@ class BacktestEngine:
             return
         
         # Apply slippage
-        execution_price = current_price * (1 + self.config.slippage_rate)
+        execution_price = current_price * (1 + self.slippage_rate)
         
         # Create position
         position = Position(
@@ -341,7 +381,7 @@ class BacktestEngine:
         self.positions[signal.symbol] = position
         
         # Deduct capital
-        commission = position_value * self.config.commission_rate
+        commission = position_value * self.commission_rate
         self.capital -= (position_value + commission)
         
         logger.debug("Buy executed",
@@ -359,7 +399,7 @@ class BacktestEngine:
         position = self.positions[signal.symbol]
         
         # Apply slippage
-        execution_price = current_price * (1 - self.config.slippage_rate)
+        execution_price = current_price * (1 - self.slippage_rate)
         
         # Calculate P&L
         pnl = (execution_price - position.entry_price) * position.quantity
@@ -367,7 +407,7 @@ class BacktestEngine:
         
         # Calculate commission
         trade_value = execution_price * position.quantity
-        commission = trade_value * self.config.commission_rate
+        commission = trade_value * self.commission_rate
         
         # Net P&L after commission
         net_pnl = pnl - commission
@@ -413,13 +453,13 @@ class BacktestEngine:
     
     def _calculate_position_size(self, price: float) -> float:
         """Calculate position size based on configuration"""
-        if self.config.position_sizing == 'fixed':
-            return self.config.position_size
-        elif self.config.position_sizing == 'percentage':
-            return self.capital * self.config.position_size
+        if self.position_sizing == 'fixed':
+            return self.position_size
+        elif self.position_sizing == 'percentage':
+            return self.capital * self.position_size
         else:
             # Default to percentage of capital
-            return self.capital * self.config.position_size
+            return self.capital * self.position_size
     
     def _update_positions(self, market_data: Dict[str, Dict[str, float]]):
         """Update current position values"""
@@ -443,7 +483,7 @@ class BacktestEngine:
         for symbol in list(self.positions.keys()):
             if symbol in market_data:
                 # Create a synthetic sell signal
-                from ..strategies.base import Signal
+                from ..strategies.signal import Signal
                 sell_signal = Signal(
                     symbol=symbol,
                     action='SELL',

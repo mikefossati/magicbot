@@ -6,8 +6,8 @@ import uuid
 import asyncio
 import structlog
 
-from ...strategies.registry import get_available_strategies, create_strategy
-from ...backtesting.engine import BacktestEngine, BacktestConfig
+from ...strategies.registry import get_available_strategies, create_strategy, get_strategy_info
+from ...backtesting.engine import BacktestEngine
 from ...data.historical_manager import HistoricalDataManager
 from ...exchanges.binance_exchange import BinanceBacktestingExchange
 import numpy as np
@@ -59,18 +59,42 @@ async def get_strategies():
     strategy_info = []
     
     for name, strategy_class in strategies.items():
-        # Create a temporary instance to get parameter info
         try:
-            temp_config = {"symbols": ["BTCUSDT"]}  # Minimal config for initialization
-            temp_instance = strategy_class(temp_config)
+            # Use new architecture's parameter info method
+            param_info = get_strategy_info(name)
             
-            # Get strategy metadata
+            # Convert to API format
+            api_parameters = []
+            for param_name, param_def in param_info['parameters'].items():
+                api_param = ParameterSchema(
+                    name=param_name,
+                    type=param_def['type'],
+                    default=param_def['default'],
+                    min_value=param_def.get('min_value'),
+                    max_value=param_def.get('max_value'),
+                    description=param_def['description']
+                )
+                api_parameters.append(api_param)
+            
+            # Create default config from required parameters
+            default_config = {
+                'symbols': ['BTCUSDT'],
+                'position_size': 0.01
+            }
+            
+            # Add defaults for required parameters
+            for param_name in param_info['required_params']:
+                if param_name not in default_config:
+                    param_def = param_info['parameters'].get(param_name, {})
+                    if param_def.get('default') is not None:
+                        default_config[param_name] = param_def['default']
+            
             info = StrategyInfo(
                 name=name,
                 display_name=name.replace('_', ' ').title(),
                 description=getattr(strategy_class, '__doc__', f"{name} trading strategy"),
-                parameters=_get_strategy_parameters(strategy_class),
-                default_config=_get_default_config(strategy_class)
+                parameters=api_parameters,
+                default_config=default_config
             )
             strategy_info.append(info)
         except Exception as e:
@@ -86,25 +110,55 @@ async def get_strategy_parameters(strategy_name: str):
     if strategy_name not in strategies:
         raise HTTPException(status_code=404, detail="Strategy not found")
     
-    strategy_class = strategies[strategy_name]
-    response = {
-        "parameters": _get_strategy_parameters(strategy_class),
-        "default_config": _get_default_config(strategy_class)
-    }
-    
-    # Add presets for day trading strategy
-    if "day_trading" in strategy_name.lower():
-        response["presets"] = _get_day_trading_presets()
-    
-    return response
+    try:
+        # Use new architecture's parameter info method
+        param_info = get_strategy_info(strategy_name)
+        
+        # Convert to API format
+        api_parameters = []
+        for param_name, param_def in param_info['parameters'].items():
+            api_param = {
+                "name": param_name,
+                "type": param_def['type'],
+                "default": param_def['default'],
+                "min_value": param_def.get('min_value'),
+                "max_value": param_def.get('max_value'),
+                "description": param_def['description'],
+                "required": param_name in param_info['required_params']
+            }
+            api_parameters.append(api_param)
+        
+        # Create default config
+        default_config = {
+            'symbols': ['BTCUSDT'],
+            'position_size': 0.01
+        }
+        
+        # Add defaults for required parameters
+        for param_name in param_info['required_params']:
+            if param_name not in default_config:
+                param_def = param_info['parameters'].get(param_name, {})
+                if param_def.get('default') is not None:
+                    default_config[param_name] = param_def['default']
+        
+        response = {
+            "parameters": api_parameters,
+            "default_config": default_config,
+            "required_params": param_info['required_params'],
+            "optional_params": param_info['optional_params']
+        }
+        
+        
+        return response
+        
+    except Exception as e:
+        logger.error("Failed to get strategy parameters", strategy=strategy_name, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get strategy parameters: {str(e)}")
 
 @router.get("/strategies/{strategy_name}/presets")
 async def get_strategy_presets(strategy_name: str):
     """Get predefined configuration presets for a strategy"""
-    if "day_trading" in strategy_name.lower():
-        return {"presets": _get_day_trading_presets()}
-    else:
-        return {"presets": {}}
+    return {"presets": {}}
 
 @router.get("/symbols")
 async def get_available_symbols():
@@ -252,22 +306,49 @@ async def _execute_backtest(session_id: str, request: BacktestRequest):
         # Create strategy instance
         strategy_config = request.parameters.copy()
         strategy_config["symbols"] = [request.symbol]
+        
+        # Ensure timeframes is properly formatted as a list
+        if "timeframes" not in strategy_config:
+            strategy_config["timeframes"] = [request.timeframe]
+        elif isinstance(strategy_config["timeframes"], str):
+            strategy_config["timeframes"] = [strategy_config["timeframes"]]
+        
+        # Ensure numeric parameters are properly typed
+        numeric_params = ['fast_period', 'slow_period', 'rsi_period', 'lookback_periods']
+        for param in numeric_params:
+            if param in strategy_config and isinstance(strategy_config[param], str):
+                try:
+                    strategy_config[param] = int(strategy_config[param])
+                except ValueError:
+                    logger.warning(f"Could not convert {param} to int: {strategy_config[param]}")
+        
+        float_params = ['position_size', 'stop_loss_pct', 'take_profit_pct', 'rsi_oversold', 'rsi_overbought']
+        for param in float_params:
+            if param in strategy_config and isinstance(strategy_config[param], str):
+                try:
+                    strategy_config[param] = float(strategy_config[param])
+                except ValueError:
+                    logger.warning(f"Could not convert {param} to float: {strategy_config[param]}")
+        
         strategy = create_strategy(request.strategy_name, strategy_config)
         
         session["message"] = "Running backtest..."
         session["progress"] = 40.0
         
-        # Configure backtesting engine with proper position sizing
-        position_size = request.parameters.get('position_size', 0.1)  # Default 10% of capital
-        backtest_config = BacktestConfig(
-            initial_capital=request.initial_capital,
-            commission_rate=request.commission_rate,
-            slippage_rate=request.slippage_rate,
-            position_sizing='percentage',  # Use percentage of capital
-            position_size=position_size
+        # Configure backtesting engine with new interface
+        position_size = strategy_config.get('position_size', 0.1)  # Default 10% of capital
+        
+        # Use new BacktestEngine constructor interface (no BacktestConfig)
+        engine = BacktestEngine(
+            initial_balance=request.initial_capital,
+            fast_mode=False  # Full mode for detailed results
         )
         
-        engine = BacktestEngine(backtest_config)
+        # Set additional engine parameters directly
+        engine.commission_rate = request.commission_rate
+        engine.slippage_rate = request.slippage_rate
+        engine.position_sizing = 'percentage'
+        engine.position_size = position_size
         
         # Convert data format for backtesting engine
         formatted_data = {request.symbol: historical_data}
@@ -308,727 +389,6 @@ async def _execute_backtest(session_id: str, request: BacktestRequest):
         if exchange:
             await exchange.disconnect()
 
-def _get_strategy_parameters(strategy_class) -> List[ParameterSchema]:
-    """Extract parameter schema from strategy class"""
-    # This is a simplified parameter extraction
-    # In a real implementation, you'd want to use proper introspection
-    # or have strategies define their parameter schemas explicitly
-    
-    common_params = [
-        ParameterSchema(
-            name="position_size",
-            type="float",
-            default=0.03,  # OPTIMIZED: Updated from 1% to 3% for day trading
-            min_value=0.001,
-            max_value=0.1,  # OPTIMIZED: Reduced max from 100% to 10% to prevent over-leveraging
-            description="Position size as fraction of capital (optimized for day trading)"
-        )
-    ]
-    
-    # Strategy-specific parameters would be added here
-    # based on the strategy class
-    strategy_name = strategy_class.__name__.lower()
-    
-    if "day_trading" in strategy_name:
-        common_params.extend([
-            # EMA Trend Analysis
-            ParameterSchema(
-                name="fast_ema",
-                type="int",
-                default=8,
-                min_value=3,
-                max_value=20,
-                description="Fast EMA period (trend detection)"
-            ),
-            ParameterSchema(
-                name="medium_ema", 
-                type="int",
-                default=21,
-                min_value=10,
-                max_value=50,
-                description="Medium EMA period (trend confirmation)"
-            ),
-            ParameterSchema(
-                name="slow_ema",
-                type="int", 
-                default=50,
-                min_value=20,
-                max_value=100,
-                description="Slow EMA period (major trend)"
-            ),
-            
-            # RSI Momentum
-            ParameterSchema(
-                name="rsi_period",
-                type="int",
-                default=14,
-                min_value=5,
-                max_value=30,
-                description="RSI calculation period"
-            ),
-            ParameterSchema(
-                name="rsi_overbought",
-                type="float",
-                default=70.0,
-                min_value=60.0,
-                max_value=85.0,
-                description="RSI overbought threshold"
-            ),
-            ParameterSchema(
-                name="rsi_oversold",
-                type="float",
-                default=30.0,
-                min_value=15.0,
-                max_value=40.0,
-                description="RSI oversold threshold"
-            ),
-            
-            # MACD Settings
-            ParameterSchema(
-                name="macd_fast",
-                type="int",
-                default=12,
-                min_value=5,
-                max_value=20,
-                description="MACD fast EMA period"
-            ),
-            ParameterSchema(
-                name="macd_slow",
-                type="int",
-                default=26,
-                min_value=20,
-                max_value=40,
-                description="MACD slow EMA period"
-            ),
-            ParameterSchema(
-                name="macd_signal",
-                type="int",
-                default=9,
-                min_value=5,
-                max_value=15,
-                description="MACD signal line period"
-            ),
-            
-            # Signal Scoring
-            ParameterSchema(
-                name="min_signal_score",
-                type="float",
-                default=0.6,
-                min_value=0.3,
-                max_value=0.9,
-                description="Minimum signal score to enter trade"
-            ),
-            ParameterSchema(
-                name="strong_signal_score",
-                type="float",
-                default=0.8,
-                min_value=0.6,
-                max_value=1.0,
-                description="Strong signal score threshold"
-            ),
-            
-            # Risk Management
-            ParameterSchema(
-                name="stop_loss_pct",
-                type="float",
-                default=1.5,
-                min_value=0.5,
-                max_value=5.0,
-                description="Stop loss percentage"
-            ),
-            ParameterSchema(
-                name="take_profit_pct",
-                type="float",
-                default=2.5,
-                min_value=1.0,
-                max_value=10.0,
-                description="Take profit percentage"
-            ),
-            ParameterSchema(
-                name="trailing_stop_pct",
-                type="float",
-                default=1.0,
-                min_value=0.3,
-                max_value=3.0,
-                description="Trailing stop loss percentage"
-            ),
-            
-            # Trading Frequency
-            ParameterSchema(
-                name="max_daily_trades",
-                type="int",
-                default=3,
-                min_value=1,
-                max_value=10,
-                description="Maximum trades per day"
-            ),
-            
-            # Volume Analysis
-            ParameterSchema(
-                name="volume_multiplier",
-                type="float",
-                default=1.2,
-                min_value=1.0,
-                max_value=3.0,
-                description="Volume spike threshold multiplier"
-            ),
-            ParameterSchema(
-                name="volume_period",
-                type="int",
-                default=20,
-                min_value=10,
-                max_value=50,
-                description="Volume moving average period"
-            ),
-            
-            # Support/Resistance
-            ParameterSchema(
-                name="support_resistance_threshold",
-                type="float",
-                default=0.8,
-                min_value=0.3,
-                max_value=2.0,
-                description="Support/Resistance level threshold (%)"
-            ),
-            ParameterSchema(
-                name="pivot_period",
-                type="int",
-                default=10,
-                min_value=5,
-                max_value=20,
-                description="Pivot point calculation period"
-            ),
-            
-            # Leverage (Optional)
-            ParameterSchema(
-                name="leverage",
-                type="float",
-                default=1.0,
-                min_value=1.0,
-                max_value=10.0,
-                description="Trading leverage (1.0 = no leverage)"
-            ),
-            ParameterSchema(
-                name="use_leverage",
-                type="bool",
-                default=False,
-                description="Enable leverage trading"
-            )
-        ])
-    elif "vlam" in strategy_name or "consolidation" in strategy_name:
-        common_params.extend([
-            # VLAM Indicator Parameters
-            ParameterSchema(
-                name="vlam_period",
-                type="int",
-                default=10,
-                min_value=5,
-                max_value=30,
-                description="VLAM calculation period"
-            ),
-            ParameterSchema(
-                name="atr_period",
-                type="int",
-                default=10,
-                min_value=5,
-                max_value=30,
-                description="ATR period for volatility adjustment"
-            ),
-            ParameterSchema(
-                name="volume_period",
-                type="int",
-                default=15,
-                min_value=10,
-                max_value=50,
-                description="Volume moving average period"
-            ),
-            
-            # Consolidation Detection
-            ParameterSchema(
-                name="consolidation_min_length",
-                type="int",
-                default=4,
-                min_value=3,
-                max_value=20,
-                description="Minimum consolidation length in bars"
-            ),
-            ParameterSchema(
-                name="consolidation_tolerance",
-                type="float",
-                default=0.05,
-                min_value=0.005,
-                max_value=0.05,
-                description="Consolidation range tolerance (% of price)"
-            ),
-            ParameterSchema(
-                name="min_touches",
-                type="int",
-                default=2,
-                min_value=2,
-                max_value=6,
-                description="Minimum support/resistance touches"
-            ),
-            
-            # Spike Detection
-            ParameterSchema(
-                name="spike_min_size",
-                type="float",
-                default=0.8,
-                min_value=0.5,
-                max_value=3.0,
-                description="Minimum spike size (ATR multiplier)"
-            ),
-            ParameterSchema(
-                name="spike_volume_multiplier",
-                type="float",
-                default=1.5,
-                min_value=1.0,
-                max_value=2.5,
-                description="Volume spike confirmation multiplier"
-            ),
-            
-            # Signal Parameters
-            ParameterSchema(
-                name="vlam_signal_threshold",
-                type="float",
-                default=0.5,
-                min_value=0.3,
-                max_value=0.9,
-                description="VLAM signal strength threshold"
-            ),
-            ParameterSchema(
-                name="entry_timeout_bars",
-                type="int",
-                default=12,
-                min_value=3,
-                max_value=15,
-                description="Max bars to wait for entry after spike"
-            ),
-            
-            # Risk Management
-            ParameterSchema(
-                name="target_risk_reward",
-                type="float",
-                default=3.0,
-                min_value=1.5,
-                max_value=4.0,
-                description="Target risk:reward ratio"
-            ),
-            ParameterSchema(
-                name="max_risk_per_trade",
-                type="float",
-                default=0.02,
-                min_value=0.01,
-                max_value=0.05,
-                description="Maximum risk per trade (% of capital)"
-            ),
-            ParameterSchema(
-                name="position_timeout_hours",
-                type="int",
-                default=24,
-                min_value=6,
-                max_value=72,
-                description="Maximum position hold time (hours)"
-            )
-        ])
-    elif "momentumtrading" in strategy_name:
-        common_params.extend([
-            # Trend Detection Parameters - FINAL OPTIMIZED DEFAULTS (146.6% backtest performance)
-            ParameterSchema(
-                name="trend_ema_fast",
-                type="int",
-                default=5,  # OPTIMIZED: Ultra-fast trend detection
-                min_value=3,
-                max_value=20,
-                description="Fast EMA period for trend detection (optimized for quick signals)"
-            ),
-            ParameterSchema(
-                name="trend_ema_slow",
-                type="int",
-                default=10,  # OPTIMIZED: Quick response to trend changes
-                min_value=5,
-                max_value=30,
-                description="Slow EMA period for trend detection (optimized for responsiveness)"
-            ),
-            ParameterSchema(
-                name="trend_strength_threshold",
-                type="float",
-                default=0.001,  # OPTIMIZED: Very low threshold for early trend detection
-                min_value=0.0005,
-                max_value=0.01,
-                description="Minimum trend strength required (optimized for maximum signals)"
-            ),
-            
-            # RSI Parameters - OPTIMIZED
-            ParameterSchema(
-                name="rsi_period",
-                type="int",
-                default=7,  # OPTIMIZED: Faster RSI for quicker signals
-                min_value=5,
-                max_value=20,
-                description="RSI calculation period (optimized for momentum trading)"
-            ),
-            ParameterSchema(
-                name="rsi_momentum_threshold",
-                type="float",
-                default=50,
-                min_value=30,
-                max_value=70,
-                description="RSI neutral line for momentum confirmation"
-            ),
-            
-            # MACD Parameters
-            ParameterSchema(
-                name="macd_fast",
-                type="int",
-                default=12,
-                min_value=5,
-                max_value=20,
-                description="MACD fast EMA period"
-            ),
-            ParameterSchema(
-                name="macd_slow",
-                type="int",
-                default=26,
-                min_value=15,
-                max_value=40,
-                description="MACD slow EMA period"
-            ),
-            ParameterSchema(
-                name="macd_signal",
-                type="int",
-                default=9,
-                min_value=5,
-                max_value=15,
-                description="MACD signal line period"
-            ),
-            
-            # Volume Parameters
-            ParameterSchema(
-                name="volume_period",
-                type="int",
-                default=20,
-                min_value=10,
-                max_value=50,
-                description="Volume moving average period"
-            ),
-            ParameterSchema(
-                name="volume_surge_multiplier",
-                type="float",
-                default=1.1,  # OPTIMIZED: Minimal volume requirement
-                min_value=1.05,
-                max_value=3.0,
-                description="Volume surge confirmation multiplier (optimized for more signals)"
-            ),
-            ParameterSchema(
-                name="volume_confirmation_required",
-                type="bool",
-                default=False,  # OPTIMIZED: Disabled for maximum signals
-                description="Require volume confirmation for entries (optimized: disabled)"
-            ),
-            
-            # Entry Parameters - OPTIMIZED
-            ParameterSchema(
-                name="momentum_alignment_required",
-                type="bool",
-                default=False,  # OPTIMIZED: Disabled for maximum signals
-                description="Require momentum indicator alignment (optimized: disabled)"
-            ),
-            ParameterSchema(
-                name="trend_confirmation_bars",
-                type="int",
-                default=3,
-                min_value=1,
-                max_value=10,
-                description="Bars required for trend confirmation"
-            ),
-            ParameterSchema(
-                name="breakout_lookback",
-                type="int",
-                default=5,  # OPTIMIZED: Shorter lookback for quicker breakout detection
-                min_value=3,
-                max_value=20,
-                description="Lookback period for breakout detection (optimized for speed)"
-            ),
-            
-            # Position Sizing - OPTIMIZED FOR HIGHER RETURNS
-            ParameterSchema(
-                name="base_position_size",
-                type="float",
-                default=0.05,  # OPTIMIZED: Larger base position (5%)
-                min_value=0.01,
-                max_value=0.1,
-                description="Base position size (% of capital) - optimized for momentum trading"
-            ),
-            ParameterSchema(
-                name="max_position_size",
-                type="float",
-                default=0.1,  # OPTIMIZED: Higher maximum position (10%)
-                min_value=0.05,
-                max_value=0.2,
-                description="Maximum position size (% of capital) - optimized for trending markets"
-            ),
-            ParameterSchema(
-                name="trend_strength_scaling",
-                type="bool",
-                default=False,  # OPTIMIZED: Simplified position sizing
-                description="Scale position size based on trend strength (optimized: simplified)"
-            ),
-            
-            # Risk Management - OPTIMIZED FOR TRENDING MARKETS
-            ParameterSchema(
-                name="stop_loss_atr_multiplier",
-                type="float",
-                default=5.0,  # OPTIMIZED: Wider stops to avoid whipsaws
-                min_value=2.0,
-                max_value=10.0,
-                description="Stop loss distance (ATR multiplier) - optimized for trending markets"
-            ),
-            ParameterSchema(
-                name="take_profit_risk_reward",
-                type="float",
-                default=1.5,  # OPTIMIZED: Quicker profit taking
-                min_value=1.2,
-                max_value=3.0,
-                description="Take profit risk:reward ratio - optimized for momentum trading"
-            ),
-            ParameterSchema(
-                name="trailing_stop_activation",
-                type="float",
-                default=1.5,
-                min_value=1.0,
-                max_value=3.0,
-                description="Activate trailing stop at R multiple"
-            ),
-            ParameterSchema(
-                name="max_risk_per_trade",
-                type="float",
-                default=0.02,
-                min_value=0.01,
-                max_value=0.05,
-                description="Maximum risk per trade (% of capital)"
-            ),
-            
-            # Position Management
-            ParameterSchema(
-                name="max_concurrent_positions",
-                type="int",
-                default=3,
-                min_value=1,
-                max_value=10,
-                description="Maximum concurrent positions"
-            ),
-            ParameterSchema(
-                name="position_timeout_hours",
-                type="int",
-                default=168,
-                min_value=24,
-                max_value=720,
-                description="Maximum position hold time (hours)"
-            )
-        ])
-    elif "ma" in strategy_name or "crossover" in strategy_name:
-        common_params.extend([
-            ParameterSchema(
-                name="fast_period",
-                type="int",
-                default=10,
-                min_value=1,
-                max_value=50,
-                description="Fast moving average period"
-            ),
-            ParameterSchema(
-                name="slow_period",
-                type="int",
-                default=20,
-                min_value=2,
-                max_value=100,
-                description="Slow moving average period"
-            )
-        ])
-    elif "rsi" in strategy_name:
-        common_params.extend([
-            ParameterSchema(
-                name="rsi_period",
-                type="int",
-                default=14,
-                min_value=2,
-                max_value=50,
-                description="RSI calculation period"
-            ),
-            ParameterSchema(
-                name="rsi_oversold",
-                type="float",
-                default=30.0,
-                min_value=10.0,
-                max_value=40.0,
-                description="RSI oversold threshold"
-            ),
-            ParameterSchema(
-                name="rsi_overbought",
-                type="float",
-                default=70.0,
-                min_value=60.0,
-                max_value=90.0,
-                description="RSI overbought threshold"
-            )
-        ])
-    
-    return common_params
-
-def _get_default_config(strategy_class) -> Dict[str, Any]:
-    """Get default configuration for strategy"""
-    base_config = {
-        "symbols": ["BTCUSDT"],
-        "position_size": 0.03  # OPTIMIZED: Reduced from 10% to 3% for better cost management
-    }
-    
-    strategy_name = strategy_class.__name__.lower()
-    
-    if "ma" in strategy_name or "crossover" in strategy_name:
-        base_config.update({
-            "fast_period": 10,
-            "slow_period": 20
-        })
-    
-    if "rsi" in strategy_name:
-        base_config.update({
-            "rsi_period": 14,
-            "rsi_oversold": 30.0,
-            "rsi_overbought": 70.0
-        })
-    
-    if "macd" in strategy_name:
-        base_config.update({
-            "fast_period": 12,
-            "slow_period": 26,
-            "signal_period": 9
-        })
-    
-    if "day_trading" in strategy_name:
-        base_config.update({
-            # OPTIMAL EMA Settings from backtesting analysis
-            "fast_ema": 12,        # Increased from 8 - better trend confirmation
-            "medium_ema": 26,      # Increased from 21 - more stable reference
-            "slow_ema": 55,        # Increased from 50 - stronger trend filter
-            
-            # RSI Settings
-            "rsi_period": 14,
-            "rsi_overbought": 70,
-            "rsi_oversold": 30,
-            "rsi_neutral_high": 60,
-            "rsi_neutral_low": 40,
-            
-            # MACD Settings
-            "macd_fast": 12,
-            "macd_slow": 26,
-            "macd_signal": 9,
-            
-            # OPTIMAL Signal Scoring from backtesting
-            "min_signal_score": 0.8,     # Increased from 0.6 - optimal quality threshold
-            "strong_signal_score": 0.85, # Increased from 0.8 - higher bar for strong signals
-            
-            # VALIDATED Risk Management
-            "stop_loss_pct": 1.5,        # Confirmed optimal
-            "take_profit_pct": 2.5,      # Confirmed optimal
-            "trailing_stop_pct": 1.0,
-            
-            # Trading Frequency
-            "max_daily_trades": 5,       # Increased from 3 - optimal balance
-            
-            # OPTIMAL Volume Analysis
-            "volume_multiplier": 1.5,    # Increased from 1.2 - optimal balance
-            "volume_period": 20,
-            
-            # Support/Resistance
-            "support_resistance_threshold": 1.5,  # Updated to match optimal config
-            "pivot_period": 10,
-            
-            # Leverage
-            "leverage": 1.0,
-            "use_leverage": False
-        })
-    
-    if "vlam" in strategy_name or "consolidation" in strategy_name:
-        base_config.update({
-            # VLAM Indicator Settings (optimized)
-            "vlam_period": 10,
-            "atr_period": 10,
-            "volume_period": 15,
-            
-            # Consolidation Detection (optimized)
-            "consolidation_min_length": 4,
-            "consolidation_max_length": 20,
-            "consolidation_tolerance": 0.05,
-            "min_touches": 2,
-            
-            # Spike Detection (optimized)
-            "spike_min_size": 0.8,
-            "spike_volume_multiplier": 1.5,
-            
-            # Signal Parameters (optimized)
-            "vlam_signal_threshold": 0.5,
-            "entry_timeout_bars": 12,
-            
-            # Risk Management (optimized)
-            "target_risk_reward": 3.0,
-            "max_risk_per_trade": 0.02,
-            "position_timeout_hours": 24,
-            "max_concurrent_positions": 2
-        })
-    
-    if "momentumtrading" in strategy_name:
-        base_config.update({
-            # Trend Detection Parameters - FINAL OPTIMIZED (146.6% backtest performance)
-            "trend_ema_fast": 5,  # Ultra-fast trend detection
-            "trend_ema_slow": 10,  # Quick response to trend changes
-            "trend_ema_signal": 9,
-            "trend_strength_threshold": 0.001,  # Very low threshold for early trend detection
-            
-            # RSI Parameters - FINAL OPTIMIZED
-            "rsi_period": 7,  # Faster RSI for quicker signals
-            "rsi_oversold": 30,
-            "rsi_overbought": 70,
-            "rsi_momentum_threshold": 50,
-            
-            # MACD Parameters
-            "macd_fast": 12,
-            "macd_slow": 26,
-            "macd_signal": 9,
-            "macd_histogram_threshold": 0.0,
-            
-            # Volume Parameters - OPTIMIZED FOR MORE SIGNALS
-            "volume_period": 20,
-            "volume_surge_multiplier": 1.1,  # Minimal volume requirement
-            "volume_confirmation_required": False,  # Disabled for maximum signals
-            
-            # Entry Signal Parameters - OPTIMIZED
-            "momentum_alignment_required": False,  # Disabled for maximum signals
-            "trend_confirmation_bars": 3,
-            "breakout_lookback": 5,  # Shorter lookback for quicker breakout detection
-            
-            # Position Sizing - OPTIMIZED FOR HIGHER RETURNS
-            "base_position_size": 0.05,  # Larger base position (5%)
-            "max_position_size": 0.1,  # Higher maximum position (10%)
-            "trend_strength_scaling": False,  # Simplified position sizing
-            
-            # Risk Management - OPTIMIZED FOR TRENDING MARKETS
-            "stop_loss_atr_multiplier": 5.0,  # Wider stops to avoid whipsaws
-            "take_profit_risk_reward": 1.5,  # Quicker profit taking
-            "trailing_stop_activation": 1.5,
-            "trailing_stop_distance": 1.0,
-            "max_risk_per_trade": 0.02,
-            
-            # Trend Filter
-            "min_trend_duration": 5,
-            "trend_invalidation_threshold": 0.005,
-            
-            # Position Management
-            "max_concurrent_positions": 3,
-            "position_timeout_hours": 168
-        })
-    
-    return base_config
 
 def _convert_numpy_types(obj):
     """Convert numpy types to native Python types for JSON serialization"""
@@ -1068,130 +428,6 @@ def _convert_numpy_types(obj):
     else:
         return obj
 
-def _get_day_trading_presets() -> Dict[str, Dict[str, Any]]:
-    """Get predefined configuration presets for day trading strategy"""
-    return {
-        "optimized": {
-            "name": "🎯 Optimized (Recommended)",
-            "description": "Backtesting-optimized parameters with EMA 12/26/55, signal threshold 0.8, volume 1.5x - Best performance in comprehensive testing",
-            "config": {
-                "position_size": 0.02,
-                # OPTIMAL EMA settings from backtesting analysis
-                "fast_ema": 12,        # Increased from 8 - better trend confirmation
-                "medium_ema": 26,      # Increased from 21 - more stable reference
-                "slow_ema": 55,        # Increased from 50 - stronger trend filter
-                "rsi_period": 14,
-                "rsi_overbought": 70,
-                "rsi_oversold": 30,
-                "rsi_neutral_high": 60,
-                "rsi_neutral_low": 40,
-                "macd_fast": 12,
-                "macd_slow": 26,
-                "macd_signal": 9,
-                # OPTIMAL signal scoring from backtesting
-                "min_signal_score": 0.8,     # Optimal quality threshold
-                "strong_signal_score": 0.85,
-                # VALIDATED risk management settings
-                "stop_loss_pct": 1.5,        # Confirmed optimal
-                "take_profit_pct": 2.5,      # Confirmed optimal
-                "trailing_stop_pct": 1.0,
-                "max_daily_trades": 5,
-                # OPTIMAL volume confirmation
-                "volume_multiplier": 1.5,    # Optimal balance
-                "volume_period": 20,
-                "support_resistance_threshold": 1.5,  # Updated to match optimal config
-                "pivot_period": 10,
-                "leverage": 1.0,
-                "use_leverage": False
-            }
-        },
-        "conservative": {
-            "name": "Conservative",
-            "description": "Lower risk, fewer trades, stricter signal requirements - Updated with optimal EMA settings",
-            "config": {
-                "position_size": 0.015,  # Even more conservative
-                # Updated with optimal EMA settings
-                "fast_ema": 12,
-                "medium_ema": 26,
-                "slow_ema": 55,
-                "rsi_period": 14,
-                "rsi_overbought": 75,
-                "rsi_oversold": 25,
-                "macd_fast": 12,
-                "macd_slow": 26,
-                "macd_signal": 9,
-                "min_signal_score": 0.85,   # Even higher threshold for conservative
-                "strong_signal_score": 0.9,
-                "stop_loss_pct": 1.0,       # Tighter stop loss
-                "take_profit_pct": 2.0,     # Lower take profit
-                "trailing_stop_pct": 0.7,   # Tighter trailing stop
-                "max_daily_trades": 2,      # Fewer trades
-                "volume_multiplier": 2.0,   # Higher volume requirement
-                "volume_period": 20,
-                "support_resistance_threshold": 1.0,  # Stricter S/R levels
-                "pivot_period": 10,
-                "leverage": 1.0,
-                "use_leverage": False
-            }
-        },
-        "balanced": {
-            "name": "Balanced",
-            "description": "Balanced approach with moderate risk - Updated with optimal EMA settings",
-            "config": {
-                "position_size": 0.025,
-                # Updated with optimal EMA settings
-                "fast_ema": 12,
-                "medium_ema": 26,
-                "slow_ema": 55,
-                "rsi_period": 14,
-                "rsi_overbought": 70,
-                "rsi_oversold": 30,
-                "macd_fast": 12,
-                "macd_slow": 26,
-                "macd_signal": 9,
-                "min_signal_score": 0.75,   # Slightly lower than optimal
-                "strong_signal_score": 0.85,
-                "stop_loss_pct": 1.5,
-                "take_profit_pct": 2.5,
-                "trailing_stop_pct": 1.0,
-                "max_daily_trades": 4,
-                "volume_multiplier": 1.3,   # Slightly lower than optimal
-                "volume_period": 20,
-                "support_resistance_threshold": 1.2,
-                "pivot_period": 10,
-                "leverage": 1.0,
-                "use_leverage": False
-            }
-        },
-        "aggressive": {
-            "name": "Aggressive",
-            "description": "Higher risk, more trades - Uses faster EMAs for more responsive signals",
-            "config": {
-                "position_size": 0.04,
-                "fast_ema": 8,          # Faster EMAs for aggressive
-                "medium_ema": 21,
-                "slow_ema": 50,
-                "rsi_period": 10,       # Shorter RSI period
-                "rsi_overbought": 65,   # More relaxed levels
-                "rsi_oversold": 35,
-                "macd_fast": 8,         # Faster MACD
-                "macd_slow": 21,
-                "macd_signal": 7,
-                "min_signal_score": 0.7,  # Lower threshold for more trades
-                "strong_signal_score": 0.75,
-                "stop_loss_pct": 2.0,      # Wider stop loss
-                "take_profit_pct": 3.0,    # Higher take profit
-                "trailing_stop_pct": 1.3,  # Wider trailing stop
-                "max_daily_trades": 8,     # More trades
-                "volume_multiplier": 1.2,  # Lower volume requirement
-                "volume_period": 15,       # Shorter volume period
-                "support_resistance_threshold": 2.0,  # More relaxed S/R levels
-                "pivot_period": 7,         # Shorter pivot period
-                "leverage": 2.0,           # Optional leverage
-                "use_leverage": False      # User can enable
-            }
-        }
-    }
 
 def _enhance_backtest_results(results: Dict, historical_data, request: BacktestRequest) -> Dict:
     """Enhance backtest results with additional visualization data"""

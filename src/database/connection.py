@@ -37,7 +37,15 @@ class DatabaseManager:
                 self.database_url,
                 min_size=self.min_size,
                 max_size=self.max_size,
-                command_timeout=60
+                command_timeout=60,
+                server_settings={
+                    'application_name': 'magicbot_optimization',
+                    'tcp_keepalives_idle': '600',
+                    'tcp_keepalives_interval': '30',
+                    'tcp_keepalives_count': '3'
+                },
+                max_queries=50000,
+                max_inactive_connection_lifetime=300.0
             )
             
             # Test connection
@@ -178,3 +186,75 @@ class DatabaseManager:
 
 # Global database instance
 db = DatabaseManager()
+
+async def get_historical_data(
+    start_date,
+    end_date,
+    symbol: str = "BTCUSDT",
+    timeframe: str = "1h"
+):
+    """
+    Get historical market data for backtesting.
+    
+    Args:
+        start_date: Start date for data
+        end_date: End date for data
+        symbol: Trading symbol
+        timeframe: Data timeframe
+        
+    Returns:
+        Dictionary with symbol as key and DataFrame as value
+    """
+    import pandas as pd
+    import numpy as np
+    
+    logger.info("Fetching historical data",
+               symbol=symbol,
+               start_date=start_date,
+               end_date=end_date,
+               timeframe=timeframe)
+    
+    # Generate sample data for development
+    date_range = pd.date_range(start=start_date, end=end_date, freq='H')
+    
+    # Simulate price data with some randomness
+    np.random.seed(42)  # For reproducible results
+    
+    base_price = 50000  # Starting price for BTC
+    price_changes = np.random.normal(0, 0.02, len(date_range))
+    prices = [base_price]
+    
+    for change in price_changes[1:]:
+        new_price = prices[-1] * (1 + change)
+        prices.append(max(new_price, 1000))  # Minimum price floor
+    
+    # Create OHLCV data
+    data = []
+    for i, (timestamp, price) in enumerate(zip(date_range, prices)):
+        high = price * (1 + abs(np.random.normal(0, 0.01)))
+        low = price * (1 - abs(np.random.normal(0, 0.01)))
+        
+        # Ensure OHLC relationships are valid
+        high = max(high, price)
+        low = min(low, price)
+        
+        volume = np.random.uniform(100, 1000)
+        
+        data.append({
+            'timestamp': timestamp,
+            'open': price,
+            'high': high,
+            'low': low,
+            'close': price,
+            'volume': volume
+        })
+    
+    df = pd.DataFrame(data)
+    df.set_index('timestamp', inplace=True)
+    
+    logger.info("Historical data fetched",
+               symbol=symbol,
+               records=len(df),
+               date_range=f"{df.index[0]} to {df.index[-1]}")
+    
+    return {symbol: df}

@@ -180,3 +180,10 @@ def setup_web_routes(app: FastAPI):
         return templates.TemplateResponse("backtest.html", {
             "request": request
         })
+    
+    @app.get("/optimization", response_class=HTMLResponse)
+    async def optimization_page(request: Request):
+        """Parameter optimization dashboard page"""
+        return templates.TemplateResponse("optimization.html", {
+            "request": request
+        })

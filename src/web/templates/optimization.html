@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parameter Optimization - Magicbot</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.27.0/plotly.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .optimization-card {
+            transition: transform 0.2s;
+        }
+        .optimization-card:hover {
+            transform: translateY(-2px);
+        }
+        .progress-bar-custom {
+            background: linear-gradient(45deg, #007bff, #28a745);
+            animation: progress-shine 2s infinite;
+        }
+        @keyframes progress-shine {
+            0% { background-position: -200px 0; }
+            100% { background-position: 200px 0; }
+        }
+        .status-running {
+            color: #007bff;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .pareto-front-point {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .pareto-front-point:hover {
+            transform: scale(1.2);
+        }
+        .convergence-chart {
+            height: 400px;
+        }
+        .parameter-sensitivity {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">Magicbot Trading System</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="/dashboard">Dashboard</a>
+                <a class="nav-link active" href="/optimization">Optimization</a>
+                <a class="nav-link" href="/backtest">Backtesting</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <!-- Left Sidebar - Job Management -->
+            <div class="col-lg-3">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Start Optimization</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="optimizationForm">
+                            <div class="mb-3">
+                                <label for="strategySelect" class="form-label">Strategy</label>
+                                <select class="form-select" id="strategySelect" name="strategySelect" required>
+                                    <option value="">Select Strategy</option>
+                                    <option value="ma_crossover">MA Crossover</option>
+                                    <option value="rsi_strategy">RSI Strategy</option>
+                                    <option value="bollinger_bands">Bollinger Bands</option>
+                                    <option value="breakout_strategy">Breakout Strategy</option>
+                                    <option value="macd_strategy">MACD Strategy</option>
+                                    <option value="momentum_strategy">Momentum Strategy</option>
+                                    <option value="stochastic_strategy">Stochastic Strategy</option>
+                                    <option value="mean_reversion_rsi">Mean Reversion RSI</option>
+                                    <option value="ema_scalping_strategy">EMA Scalping Strategy</option>
+                                    <option value="day_trading_strategy" selected>Day Trading Strategy</option>
+                                    <option value="vlam_consolidation_strategy">VLAM Consolidation Strategy</option>
+                                    <option value="momentum_trading_strategy">Momentum Trading Strategy</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="optimizerType" class="form-label">Optimizer</label>
+                                <select class="form-select" id="optimizerType" name="optimizerType" required>
+                                    <option value="grid_search">Grid Search</option>
+                                    <option value="genetic">Genetic Algorithm</option>
+                                    <option value="multi_objective">Multi-Objective</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="startDate" class="form-label">Start Date</label>
+                                <input type="date" class="form-control" id="startDate" name="startDate" required>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="endDate" class="form-label">End Date</label>
+                                <input type="date" class="form-control" id="endDate" name="endDate" required>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="objectives" class="form-label">Objectives</label>
+                                <select class="form-select" id="objectives" multiple>
+                                    <option value="maximize_return" selected>Maximize Return</option>
+                                    <option value="maximize_sharpe">Maximize Sharpe</option>
+                                    <option value="minimize_drawdown">Minimize Drawdown</option>
+                                    <option value="maximize_profit_factor">Maximize Profit Factor</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="validationEnabled" checked>
+                                <label class="form-check-label" for="validationEnabled">
+                                    Enable Walk-Forward Validation
+                                </label>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary w-100" id="startOptimizationBtn">
+                                Start Optimization
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Active Jobs -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h6>Active Jobs</h6>
+                    </div>
+                    <div class="card-body" id="activeJobs">
+                        <div class="text-muted small">No active jobs</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content Area -->
+            <div class="col-lg-9">
+                <!-- Current Job Status -->
+                <div id="currentJobCard" class="card mb-4" style="display: none;">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 id="currentJobTitle">Optimization in Progress</h5>
+                        <button class="btn btn-sm btn-outline-danger" id="cancelJobBtn">Cancel</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Progress</label>
+                                    <div class="progress">
+                                        <div id="jobProgress" class="progress-bar progress-bar-custom" style="width: 0%"></div>
+                                    </div>
+                                    <small class="text-muted" id="progressText">0% complete</small>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-6">
+                                        <div class="card metric-card text-center">
+                                            <div class="card-body">
+                                                <h6>Iteration</h6>
+                                                <h4 id="currentIteration">0</h4>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="card metric-card text-center">
+                                            <div class="card-body">
+                                                <h6>Best Score</h6>
+                                                <h4 id="bestScore">-</h4>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Best Parameters</label>
+                                    <div id="bestParameters" class="bg-light p-3 rounded">
+                                        <small class="text-muted">No results yet</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Tabs -->
+                <div id="resultsSection" style="display: none;">
+                    <ul class="nav nav-tabs" id="resultsTabs">
+                        <li class="nav-item">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#convergenceTab">
+                                Convergence Analysis
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#sensitivityTab">
+                                Parameter Sensitivity
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#paretoTab">
+                                Pareto Front
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#comparisonTab">
+                                Model Comparison
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content mt-3">
+                        <!-- Convergence Analysis Tab -->
+                        <div class="tab-pane fade show active" id="convergenceTab">
+                            <div class="row">
+                                <div class="col-lg-8">
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h6>Convergence Chart</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div id="convergenceChart" class="convergence-chart"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h6>Convergence Metrics</h6>
+                                        </div>
+                                        <div class="card-body" id="convergenceMetrics">
+                                            <div class="text-muted">Run optimization to see metrics</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Parameter Sensitivity Tab -->
+                        <div class="tab-pane fade" id="sensitivityTab">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6>Parameter Importance Analysis</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-lg-8">
+                                            <div id="sensitivityChart"></div>
+                                        </div>
+                                        <div class="col-lg-4">
+                                            <div class="parameter-sensitivity">
+                                                <h6>Top Parameters</h6>
+                                                <div id="topParameters">
+                                                    <div class="text-muted">Run optimization to see analysis</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Pareto Front Tab -->
+                        <div class="tab-pane fade" id="paretoTab">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6>Multi-Objective Pareto Front</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div id="paretoChart" style="height: 500px;"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Model Comparison Tab -->
+                        <div class="tab-pane fade" id="comparisonTab">
+                            <div class="row">
+                                <div class="col-lg-6">
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h6>Model Performance Comparison</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div id="modelComparisonChart"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h6>Strategy Performance Timeline</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div id="performanceTimelineChart"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Optimization Runs -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6>Recent Optimization Runs</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="recentRunsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Strategy</th>
+                                        <th>Optimizer</th>
+                                        <th>Best Score</th>
+                                        <th>Evaluations</th>
+                                        <th>Duration</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recentRunsBody">
+                                    <tr>
+                                        <td colspan="7" class="text-center text-muted">No optimization runs yet</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        class OptimizationDashboard {
+            constructor() {
+                this.currentJobId = null;
+                this.pollingInterval = null;
+                this.charts = {};
+                
+                this.initializeEventListeners();
+                this.loadRecentRuns();
+                this.loadActiveJobs();
+                
+                // Set default dates
+                const today = new Date();
+                const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+                document.getElementById('startDate').value = monthAgo.toISOString().split('T')[0];
+                document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            }
+
+            initializeEventListeners() {
+                document.getElementById('optimizationForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.startOptimization();
+                });
+
+                document.getElementById('cancelJobBtn').addEventListener('click', () => {
+                    this.cancelCurrentJob();
+                });
+            }
+
+            async startOptimization() {
+                const formData = new FormData(document.getElementById('optimizationForm'));
+                const objectives = Array.from(document.getElementById('objectives').selectedOptions)
+                    .map(option => option.value);
+
+                const requestData = {
+                    strategy_name: formData.get('strategySelect'),
+                    optimizer_type: formData.get('optimizerType'),
+                    start_date: formData.get('startDate'),
+                    end_date: formData.get('endDate'),
+                    objectives: objectives,
+                    validation_enabled: document.getElementById('validationEnabled').checked
+                };
+
+                try {
+                    const response = await fetch('/api/v1/optimization/jobs', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(requestData)
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        this.currentJobId = result.job_id;
+                        this.showJobStatus();
+                        this.startPolling();
+                        this.showNotification('Optimization started successfully', 'success');
+                    } else {
+                        const error = await response.json();
+                        this.showNotification(`Error: ${error.detail}`, 'danger');
+                    }
+                } catch (error) {
+                    this.showNotification(`Error: ${error.message}`, 'danger');
+                }
+            }
+
+            showJobStatus() {
+                document.getElementById('currentJobCard').style.display = 'block';
+                document.getElementById('resultsSection').style.display = 'none';
+            }
+
+            startPolling() {
+                if (this.pollingInterval) {
+                    clearInterval(this.pollingInterval);
+                }
+
+                this.pollingInterval = setInterval(async () => {
+                    await this.updateJobStatus();
+                }, 2000);
+            }
+
+            async updateJobStatus() {
+                if (!this.currentJobId) return;
+
+                try {
+                    const response = await fetch(`/api/v1/optimization/jobs/${this.currentJobId}/status`);
+                    if (response.ok) {
+                        const status = await response.json();
+                        this.displayJobStatus(status);
+
+                        if (status.status === 'completed') {
+                            this.onJobCompleted();
+                        } else if (status.status === 'failed') {
+                            this.onJobFailed(status.error_message);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error updating job status:', error);
+                }
+            }
+
+            displayJobStatus(status) {
+                const progressPercent = Math.round(status.progress * 100);
+                document.getElementById('jobProgress').style.width = `${progressPercent}%`;
+                document.getElementById('progressText').textContent = `${progressPercent}% complete`;
+                document.getElementById('currentIteration').textContent = status.current_iteration;
+
+                if (status.best_result) {
+                    document.getElementById('bestScore').textContent = 
+                        status.best_result.objective_value.toFixed(4);
+                    
+                    const paramsHtml = Object.entries(status.best_result.parameters)
+                        .map(([key, value]) => `<div><strong>${key}:</strong> ${value}</div>`)
+                        .join('');
+                    document.getElementById('bestParameters').innerHTML = paramsHtml;
+                }
+            }
+
+            async onJobCompleted() {
+                clearInterval(this.pollingInterval);
+                this.showNotification('Optimization completed successfully!', 'success');
+                
+                // Load and display results
+                await this.loadJobResults();
+                document.getElementById('currentJobCard').style.display = 'none';
+                document.getElementById('resultsSection').style.display = 'block';
+                
+                this.loadRecentRuns();
+            }
+
+            onJobFailed(errorMessage) {
+                clearInterval(this.pollingInterval);
+                this.showNotification(`Optimization failed: ${errorMessage}`, 'danger');
+                document.getElementById('currentJobCard').style.display = 'none';
+            }
+
+            async loadJobResults() {
+                try {
+                    const response = await fetch(`/api/v1/optimization/jobs/${this.currentJobId}/results?include_analysis=true`);
+                    if (response.ok) {
+                        const results = await response.json();
+                        await this.displayResults(results);
+                    }
+                } catch (error) {
+                    console.error('Error loading results:', error);
+                }
+            }
+
+            async displayResults(results) {
+                // Display convergence analysis
+                if (results.convergence_analysis) {
+                    this.displayConvergenceChart(results.convergence_analysis);
+                    this.displayConvergenceMetrics(results.convergence_analysis);
+                }
+
+                // Load parameter sensitivity
+                await this.loadParameterSensitivity(results.run_id);
+
+                // Load model comparison data
+                await this.loadModelComparison(results.strategy_name);
+            }
+
+            displayConvergenceChart(convergence) {
+                const trace = {
+                    x: convergence.objective_progression.iterations,
+                    y: convergence.objective_progression.running_best,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Best Objective Value',
+                    line: { color: '#007bff', width: 3 }
+                };
+
+                const layout = {
+                    title: 'Optimization Convergence',
+                    xaxis: { title: 'Iteration' },
+                    yaxis: { title: 'Objective Value' },
+                    margin: { t: 50, r: 30, b: 50, l: 60 }
+                };
+
+                Plotly.newPlot('convergenceChart', [trace], layout, {responsive: true});
+            }
+
+            displayConvergenceMetrics(convergence) {
+                const metrics = convergence.convergence_metrics;
+                const html = `
+                    <div class="mb-2">
+                        <strong>Total Improvement:</strong> ${metrics.total_improvement.toFixed(4)}
+                    </div>
+                    <div class="mb-2">
+                        <strong>Convergence Rate:</strong> ${metrics.convergence_rate.toFixed(6)}
+                    </div>
+                    <div class="mb-2">
+                        <strong>Final Plateau Length:</strong> ${metrics.final_plateau_length}
+                    </div>
+                    <div class="mb-2">
+                        <strong>Assessment:</strong> 
+                        <span class="badge bg-info">${convergence.convergence_assessment}</span>
+                    </div>
+                `;
+                document.getElementById('convergenceMetrics').innerHTML = html;
+            }
+
+            async loadParameterSensitivity(runId) {
+                try {
+                    const response = await fetch(`/api/v1/optimization/runs/${runId}/analysis?analysis_type=sensitivity`);
+                    if (response.ok) {
+                        const sensitivity = await response.json();
+                        this.displayParameterSensitivity(sensitivity);
+                    }
+                } catch (error) {
+                    console.error('Error loading parameter sensitivity:', error);
+                }
+            }
+
+            displayParameterSensitivity(sensitivity) {
+                // Parameter importance chart
+                const trace = {
+                    x: sensitivity.feature_importance.map(f => f.importance),
+                    y: sensitivity.feature_importance.map(f => f.parameter),
+                    type: 'bar',
+                    orientation: 'h',
+                    marker: { color: '#28a745' }
+                };
+
+                const layout = {
+                    title: 'Parameter Importance',
+                    xaxis: { title: 'Importance Score' },
+                    margin: { t: 50, r: 30, b: 50, l: 120 }
+                };
+
+                Plotly.newPlot('sensitivityChart', [trace], layout, {responsive: true});
+
+                // Top parameters list
+                const topParamsHtml = sensitivity.top_parameters.slice(0, 5)
+                    .map((param, index) => `
+                        <div class="d-flex justify-content-between mb-2">
+                            <span><strong>#${index + 1}</strong> ${param}</span>
+                            <span class="badge bg-success">
+                                ${sensitivity.feature_importance.find(f => f.parameter === param)?.importance.toFixed(3)}
+                            </span>
+                        </div>
+                    `).join('');
+
+                document.getElementById('topParameters').innerHTML = topParamsHtml;
+            }
+
+            async loadModelComparison(strategyName) {
+                try {
+                    const response = await fetch(`/api/v1/optimization/strategies/${strategyName}/performance?days_back=90`);
+                    if (response.ok) {
+                        const performance = await response.json();
+                        this.displayModelComparison(performance);
+                    }
+                } catch (error) {
+                    console.error('Error loading model comparison:', error);
+                }
+            }
+
+            displayModelComparison(performance) {
+                // Performance timeline
+                const timeline = performance.model_timeline || [];
+                const trace = {
+                    x: timeline.map(m => m.created_at),
+                    y: timeline.map(m => m.validation_score),
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: 'Validation Score',
+                    line: { color: '#6f42c1' },
+                    marker: { size: 8 }
+                };
+
+                const layout = {
+                    title: 'Model Performance Over Time',
+                    xaxis: { title: 'Date' },
+                    yaxis: { title: 'Validation Score' },
+                    margin: { t: 50, r: 30, b: 50, l: 60 }
+                };
+
+                Plotly.newPlot('performanceTimelineChart', [trace], layout, {responsive: true});
+            }
+
+            async loadRecentRuns() {
+                try {
+                    const response = await fetch('/api/v1/optimization/runs?limit=10');
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.displayRecentRuns(data.runs);
+                    }
+                } catch (error) {
+                    console.error('Error loading recent runs:', error);
+                }
+            }
+
+            displayRecentRuns(runs) {
+                const tbody = document.getElementById('recentRunsBody');
+                if (runs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No optimization runs yet</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = runs.map(run => `
+                    <tr>
+                        <td>${run.strategy_name}</td>
+                        <td><span class="badge bg-secondary">${run.optimizer_type}</span></td>
+                        <td>${run.best_objective_value?.toFixed(4) || 'N/A'}</td>
+                        <td>${run.total_evaluations}</td>
+                        <td>${this.formatDuration(run.start_time, run.end_time)}</td>
+                        <td>
+                            <span class="badge bg-${this.getStatusColor(run.status)}">${run.status}</span>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" onclick="dashboard.viewRun('${run.run_id}')">
+                                View
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            async loadActiveJobs() {
+                try {
+                    const response = await fetch('/api/v1/optimization/jobs?status=running');
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.displayActiveJobs(data.jobs);
+                    }
+                } catch (error) {
+                    console.error('Error loading active jobs:', error);
+                }
+            }
+
+            displayActiveJobs(jobs) {
+                const container = document.getElementById('activeJobs');
+                if (jobs.length === 0) {
+                    container.innerHTML = '<div class="text-muted small">No active jobs</div>';
+                    return;
+                }
+
+                container.innerHTML = jobs.map(job => `
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <div class="fw-bold small">${job.strategy_name}</div>
+                            <div class="text-muted small">${Math.round(job.progress * 100)}%</div>
+                        </div>
+                        <span class="status-running">●</span>
+                    </div>
+                `).join('');
+            }
+
+            async viewRun(runId) {
+                // Load and display specific run results
+                this.currentJobId = runId.split('_')[0]; // Extract job ID
+                await this.loadJobResults();
+                document.getElementById('resultsSection').style.display = 'block';
+            }
+
+            async cancelCurrentJob() {
+                if (!this.currentJobId) return;
+
+                try {
+                    const response = await fetch(`/api/v1/optimization/jobs/${this.currentJobId}`, {
+                        method: 'DELETE'
+                    });
+
+                    if (response.ok) {
+                        clearInterval(this.pollingInterval);
+                        document.getElementById('currentJobCard').style.display = 'none';
+                        this.showNotification('Job cancelled successfully', 'warning');
+                        this.loadRecentRuns();
+                    }
+                } catch (error) {
+                    this.showNotification(`Error cancelling job: ${error.message}`, 'danger');
+                }
+            }
+
+            formatDuration(startTime, endTime) {
+                if (!endTime) return 'Running...';
+                
+                const start = new Date(startTime);
+                const end = new Date(endTime);
+                const duration = Math.round((end - start) / 1000);
+                
+                if (duration < 60) return `${duration}s`;
+                if (duration < 3600) return `${Math.round(duration / 60)}m`;
+                return `${Math.round(duration / 3600)}h`;
+            }
+
+            getStatusColor(status) {
+                const colors = {
+                    'completed': 'success',
+                    'running': 'primary',
+                    'failed': 'danger',
+                    'cancelled': 'warning'
+                };
+                return colors[status] || 'secondary';
+            }
+
+            showNotification(message, type) {
+                // Simple notification system
+                const alert = document.createElement('div');
+                alert.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+                alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+                alert.innerHTML = `
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                
+                document.body.appendChild(alert);
+                setTimeout(() => alert.remove(), 5000);
+            }
+        }
+
+        // Initialize dashboard
+        const dashboard = new OptimizationDashboard();
+    </script>
+</body>
+</html>

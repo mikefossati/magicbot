@@ -81,6 +81,10 @@ app.include_router(trading.router, prefix="/api/v1/trading", tags=["trading"])
 app.include_router(strategies.router, prefix="/api/v1/strategies", tags=["strategies"])
 app.include_router(backtesting.router, prefix="/api/v1/backtesting", tags=["backtesting"])
 
+# Include optimization router
+from .routes import optimization
+app.include_router(optimization.router, prefix="/api/v1", tags=["optimization"])
+
 @app.get("/")
 async def root():
     """Health check endpoint"""

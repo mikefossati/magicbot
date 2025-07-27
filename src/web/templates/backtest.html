@@ -555,44 +555,88 @@
             const container = document.getElementById('parametersContainer');
             container.innerHTML = '';
             
-            // Group parameters by category for day trading strategy
+            // Use dynamic parameter organization based on schema
             const strategyName = document.getElementById('strategySelect').value;
-            if (strategyName && strategyName.includes('day_trading')) {
-                loadParametersSectioned(parameters, defaultConfig);
-            } else {
-                loadParametersSimple(parameters, defaultConfig);
-            }
+            loadParametersOrganized(parameters, defaultConfig, strategyName);
         }
         
-        function loadParametersSectioned(parameters, defaultConfig) {
+        function loadParametersOrganized(parameters, defaultConfig, strategyName) {
             const container = document.getElementById('parametersContainer');
             
+            // Organize parameters by type and category for better UX
             const sections = {
-                'Basic': ['position_size'],
-                'EMA Trend': ['fast_ema', 'medium_ema', 'slow_ema'],
-                'RSI Momentum': ['rsi_period', 'rsi_overbought', 'rsi_oversold'],
-                'MACD Settings': ['macd_fast', 'macd_slow', 'macd_signal'],
-                'Signal Scoring': ['min_signal_score', 'strong_signal_score'],
-                'Risk Management': ['stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct'],
-                'Trading Limits': ['max_daily_trades'],
-                'Volume Analysis': ['volume_multiplier', 'volume_period'],
-                'Support/Resistance': ['support_resistance_threshold', 'pivot_period'],
-                'Leverage': ['leverage', 'use_leverage']
+                'Basic Configuration': {
+                    params: ['position_size', 'symbols'],
+                    priority: 1
+                },
+                'Technical Indicators': {
+                    params: ['fast_period', 'slow_period', 'fast_ema', 'medium_ema', 'slow_ema', 
+                            'rsi_period', 'rsi_overbought', 'rsi_oversold', 'rsi_neutral_high', 'rsi_neutral_low',
+                            'macd_fast', 'macd_slow', 'macd_signal', 'k_period', 'd_period', 'overbought', 'oversold',
+                            'period', 'std_dev', 'trend_ema_fast', 'trend_ema_slow', 'momentum_threshold',
+                            'scalping_ema_fast', 'scalping_ema_slow'],
+                    priority: 2
+                },
+                'Signal & Scoring': {
+                    params: ['min_signal_score', 'strong_signal_score', 'min_signal_confidence',
+                            'vlam_signal_threshold', 'histogram_threshold', 'mean_reversion_threshold'],
+                    priority: 3
+                },
+                'Risk Management': {
+                    params: ['stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct', 'max_risk_per_trade',
+                            'target_risk_reward', 'stop_loss_atr_multiplier', 'take_profit_risk_reward'],
+                    priority: 4
+                },
+                'Volume & Market Analysis': {
+                    params: ['volume_period', 'volume_multiplier', 'volume_confirmation', 'min_volume_ratio',
+                            'volume_surge_multiplier', 'volume_confirmation_required', 'spike_volume_multiplier'],
+                    priority: 5
+                },
+                'Trading Controls': {
+                    params: ['max_daily_trades', 'max_concurrent_positions', 'position_timeout_hours',
+                            'entry_timeout_bars', 'avoid_news_minutes', 'session_start', 'session_end'],
+                    priority: 6
+                },
+                'Support/Resistance & Levels': {
+                    params: ['support_resistance_threshold', 'pivot_period', 'breakout_threshold',
+                            'consolidation_min_length', 'consolidation_tolerance', 'min_touches'],
+                    priority: 7
+                },
+                'Leverage & Advanced': {
+                    params: ['leverage', 'use_leverage', 'max_leverage', 'leverage_risk_factor',
+                            'trend_strength_scaling', 'momentum_alignment_required'],
+                    priority: 8
+                },
+                'Data & Timeframes': {
+                    params: ['timeframes', 'lookback_periods', 'trend_confirmation_bars', 'breakout_lookback'],
+                    priority: 9
+                }
             };
             
-            Object.keys(sections).forEach(sectionName => {
-                const sectionParams = sections[sectionName];
+            // Filter sections to only show those with available parameters
+            const availableParams = parameters.map(p => p.name);
+            const sectionsToShow = Object.keys(sections)
+                .map(sectionName => ({
+                    name: sectionName,
+                    params: sections[sectionName].params.filter(p => availableParams.includes(p)),
+                    priority: sections[sectionName].priority
+                }))
+                .filter(section => section.params.length > 0)
+                .sort((a, b) => a.priority - b.priority);
+            
+            // Create sections dynamically
+            sectionsToShow.forEach(section => {
                 const sectionDiv = document.createElement('div');
                 sectionDiv.className = 'parameter-section';
                 
                 const sectionTitle = document.createElement('h4');
-                sectionTitle.textContent = sectionName;
+                sectionTitle.textContent = section.name;
                 sectionDiv.appendChild(sectionTitle);
                 
                 const gridDiv = document.createElement('div');
                 gridDiv.className = 'parameter-grid';
                 
-                sectionParams.forEach(paramName => {
+                section.params.forEach(paramName => {
                     const param = parameters.find(p => p.name === paramName);
                     if (param) {
                         const paramDiv = createParameterInput(param, defaultConfig);
@@ -605,16 +649,32 @@
                     container.appendChild(sectionDiv);
                 }
             });
+            
+            // Add any remaining parameters that weren't categorized
+            const categorizedParams = sectionsToShow.flatMap(s => s.params);
+            const uncategorizedParams = parameters.filter(p => !categorizedParams.includes(p.name));
+            
+            if (uncategorizedParams.length > 0) {
+                const sectionDiv = document.createElement('div');
+                sectionDiv.className = 'parameter-section';
+                
+                const sectionTitle = document.createElement('h4');
+                sectionTitle.textContent = 'Other Parameters';
+                sectionDiv.appendChild(sectionTitle);
+                
+                const gridDiv = document.createElement('div');
+                gridDiv.className = 'parameter-grid';
+                
+                uncategorizedParams.forEach(param => {
+                    const paramDiv = createParameterInput(param, defaultConfig);
+                    gridDiv.appendChild(paramDiv);
+                });
+                
+                sectionDiv.appendChild(gridDiv);
+                container.appendChild(sectionDiv);
+            }
         }
         
-        function loadParametersSimple(parameters, defaultConfig) {
-            const container = document.getElementById('parametersContainer');
-            
-            parameters.forEach(param => {
-                const paramDiv = createParameterInput(param, defaultConfig);
-                container.appendChild(paramDiv);
-            });
-        }
         
         function createParameterInput(param, defaultConfig) {
             const div = document.createElement('div');
@@ -624,31 +684,65 @@
             label.textContent = param.description || param.name;
             label.setAttribute('for', param.name);
             
-            const input = document.createElement('input');
+            // Add required indicator
+            if (param.required) {
+                const requiredSpan = document.createElement('span');
+                requiredSpan.textContent = ' *';
+                requiredSpan.style.color = '#e53e3e';
+                label.appendChild(requiredSpan);
+            }
             
-            if (param.type === 'bool') {
+            let input;
+            const defaultValue = defaultConfig[param.name] !== undefined ? defaultConfig[param.name] : param.default;
+            
+            // Handle different parameter types properly
+            if (param.type === 'bool' || param.type === 'boolean') {
+                input = document.createElement('input');
                 input.type = 'checkbox';
-                input.checked = defaultConfig[param.name] || param.default;
+                input.checked = defaultValue;
+            } else if (param.type === 'list') {
+                // Handle list types (like timeframes)
+                input = document.createElement('input');
+                input.type = 'text';
+                input.value = Array.isArray(defaultValue) ? defaultValue.join(', ') : defaultValue;
+                input.placeholder = 'Enter comma-separated values';
             } else {
-                input.type = param.type === 'int' ? 'number' : param.type === 'float' ? 'number' : 'text';
-                input.value = defaultConfig[param.name] || param.default;
+                input = document.createElement('input');
                 
-                if (param.type === 'float') {
-                    input.step = '0.01';
-                } else if (param.type === 'int') {
+                if (param.type === 'int' || param.type === 'integer') {
+                    input.type = 'number';
                     input.step = '1';
+                    input.value = defaultValue || 0;
+                } else if (param.type === 'float') {
+                    input.type = 'number';
+                    input.step = '0.01';
+                    input.value = defaultValue || 0;
+                } else {
+                    input.type = 'text';
+                    input.value = defaultValue || '';
                 }
                 
-                if (param.min_value !== null) {
+                // Set min/max constraints
+                if (param.min_value !== null && param.min_value !== undefined) {
                     input.min = param.min_value;
                 }
-                if (param.max_value !== null) {
+                if (param.max_value !== null && param.max_value !== undefined) {
                     input.max = param.max_value;
                 }
             }
             
             input.id = param.name;
             input.name = param.name;
+            
+            // Add validation attributes
+            if (param.required) {
+                input.required = true;
+            }
+            
+            // Add helpful tooltips for complex parameters
+            if (param.description && param.description !== param.name) {
+                input.title = param.description;
+            }
             
             div.appendChild(label);
             div.appendChild(input);
@@ -696,19 +790,36 @@
                 return;
             }
             
-            // Collect parameters
+            // Collect parameters with proper type conversion
             const parameters = {};
             const paramInputs = document.querySelectorAll('#parametersContainer input');
             paramInputs.forEach(input => {
                 let value;
+                
                 if (input.type === 'checkbox') {
                     value = input.checked;
                 } else if (input.type === 'number') {
-                    value = parseFloat(input.value);
+                    // Handle integer vs float properly
+                    if (input.step === '1') {
+                        value = parseInt(input.value);
+                    } else {
+                        value = parseFloat(input.value);
+                    }
+                    // Handle NaN values
+                    if (isNaN(value)) {
+                        value = 0;
+                    }
+                } else if (input.placeholder === 'Enter comma-separated values') {
+                    // Handle list types
+                    value = input.value.split(',').map(v => v.trim()).filter(v => v);
                 } else {
                     value = input.value;
                 }
-                parameters[input.name] = value;
+                
+                // Only add non-empty values
+                if (value !== '' && value !== null && value !== undefined) {
+                    parameters[input.name] = value;
+                }
             });
             
             // Prepare request
