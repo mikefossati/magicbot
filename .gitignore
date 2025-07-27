@@ -135,6 +135,29 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# MagicBot specific
+# Debug and temporary files
+debug/
+*.json
+backtest_results/
+optimization_results/
+
+# Trading logs and data
+logs/*.log
+data/cache/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
 # PyCharm
 .idea/
 

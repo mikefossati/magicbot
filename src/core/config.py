@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from pydantic_settings import BaseSettings
 from typing import List, Dict, Any
 import yaml
@@ -43,9 +43,10 @@ class Settings(BaseSettings):
     binance_secret_key: str
     binance_testnet: bool = True
     
-    class Config:
-        env_file = ".env"
-        extra = "allow"
+    model_config = ConfigDict(
+        env_file=".env",
+        extra="allow"
+    )
 
 def load_config() -> Dict[str, Any]:
     """Load configuration from YAML file"""

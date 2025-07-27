@@ -1,6 +1,5 @@
 import asyncio
 import ssl
-import os
 from binance import AsyncClient
 from binance.exceptions import BinanceAPIException
 from typing import Dict, List, Optional
@@ -13,6 +12,116 @@ from ..core.config import config
 
 logger = structlog.get_logger()
 
+class BinanceBacktestingExchange(ExchangeInterface):
+    """Binance exchange specifically for backtesting - uses mainnet for historical data"""
+    
+    def __init__(self):
+        self.client: Optional[AsyncClient] = None
+        # Force mainnet for backtesting to get comprehensive historical data
+        self.testnet = config['exchange']['binance'].get('backtesting_use_mainnet', True) == False  # Invert logic
+        self.api_key = config['exchange']['binance']['api_key']
+        self.secret_key = config['exchange']['binance']['secret_key']
+        self._connected = False
+        
+    async def connect(self) -> bool:
+        """Establish connection to Binance mainnet for historical data"""
+        if self._connected:
+            return True
+            
+        try:
+            # Create SSL context with proper certificate validation
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = True
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
+            
+            # For backtesting, we don't need actual API keys - just use public endpoints
+            # But provide empty keys to avoid errors
+            self.client = await AsyncClient.create(
+                api_key="",  # Empty for public data access
+                api_secret="",
+                testnet=False  # Always use mainnet for backtesting
+            )
+            
+            # Test connection
+            await self.client.ping()
+            
+            self._connected = True
+            
+            logger.info("Connected to Binance Mainnet for backtesting", 
+                       testnet=False, 
+                       ssl_verified=True,
+                       mode="backtesting",
+                       data_source="mainnet",
+                       note="Using production data for comprehensive historical coverage")
+            
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to connect to Binance", error=str(e))
+            raise ExchangeError(f"Connection failed: {e}")
+    
+    async def get_klines(self, symbol: str, interval: str, limit: int = 100, start_time: Optional[int] = None, end_time: Optional[int] = None) -> List[Dict]:
+        """Get historical kline/candlestick data from mainnet"""
+        if not self.client or not self._connected:
+            raise ExchangeError("Not connected to exchange")
+            
+        try:
+            # Build parameters
+            params = {
+                'symbol': symbol,
+                'interval': interval,
+                'limit': limit
+            }
+            
+            # Add time parameters if provided
+            if start_time is not None:
+                params['startTime'] = start_time
+            if end_time is not None:
+                params['endTime'] = end_time
+            
+            klines = await self.client.get_klines(**params)
+            
+            # Convert to more readable format
+            formatted_klines = []
+            for kline in klines:
+                formatted_klines.append({
+                    'timestamp': int(kline[0]),
+                    'open': float(kline[1]),
+                    'high': float(kline[2]),
+                    'low': float(kline[3]),
+                    'close': float(kline[4]),
+                    'volume': float(kline[5])
+                })
+            
+            return formatted_klines
+            
+        except BinanceAPIException as e:
+            logger.error("Failed to get klines", error=str(e))
+            raise ExchangeError(f"Klines retrieval failed: {e}")
+    
+    async def disconnect(self):
+        """Disconnect from exchange"""
+        if self.client:
+            await self.client.close_connection()
+            self._connected = False
+            logger.info("Disconnected from Binance")
+    
+    # Stub methods for interface compliance (not needed for backtesting)
+    async def get_market_data(self, symbol: str) -> MarketData:
+        raise NotImplementedError("Market data not needed for backtesting")
+    
+    async def place_order(self, order: Order) -> str:
+        raise NotImplementedError("Order placement not available in backtesting")
+    
+    async def cancel_order(self, symbol: str, order_id: str) -> bool:
+        raise NotImplementedError("Order cancellation not available in backtesting")
+    
+    async def get_account_balance(self) -> List[Balance]:
+        raise NotImplementedError("Account balance not available in backtesting")
+    
+    async def get_order_status(self, symbol: str, order_id: str) -> Dict:
+        raise NotImplementedError("Order status not available in backtesting")
+
 class BinanceExchange(ExchangeInterface):
     """Binance exchange implementation compatible with standard python-binance"""
     
@@ -24,39 +133,32 @@ class BinanceExchange(ExchangeInterface):
         self._connected = False
         
     async def connect(self) -> bool:
-        """Establish connection to Binance"""
+        """Establish connection to Binance with proper SSL verification"""
         if self._connected:
             return True
             
         try:
-            # Set environment variable to disable SSL verification (development only)
-            original_verify = os.environ.get('PYTHONHTTPSVERIFY')
-            os.environ['PYTHONHTTPSVERIFY'] = '0'
+            # Create SSL context with proper certificate validation
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = True
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
             
-            try:
-                # Create Binance client with basic parameters
-                self.client = await AsyncClient.create(
-                    api_key=self.api_key,
-                    api_secret=self.secret_key,
-                    testnet=self.testnet
-                )
-                
-                # Test connection
-                await self.client.ping()
-                
-                self._connected = True
-                
-                logger.info("Connected to Binance", 
-                           testnet=self.testnet, 
-                           ssl_disabled=True)
-                return True
-                
-            finally:
-                # Restore original SSL verification setting
-                if original_verify is not None:
-                    os.environ['PYTHONHTTPSVERIFY'] = original_verify
-                elif 'PYTHONHTTPSVERIFY' in os.environ:
-                    del os.environ['PYTHONHTTPSVERIFY']
+            # Create Binance client with SSL verification enabled
+            self.client = await AsyncClient.create(
+                api_key=self.api_key,
+                api_secret=self.secret_key,
+                testnet=self.testnet
+            )
+            
+            # Test connection
+            await self.client.ping()
+            
+            self._connected = True
+            
+            logger.info("Connected to Binance", 
+                       testnet=self.testnet, 
+                       ssl_verified=True)
+            return True
             
         except Exception as e:
             logger.error("Failed to connect to Binance", error=str(e))
@@ -181,17 +283,26 @@ class BinanceExchange(ExchangeInterface):
             logger.error("Failed to get market data", error=str(e))
             raise ExchangeError(f"Market data retrieval failed: {e}")
     
-    async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> List[Dict]:
+    async def get_klines(self, symbol: str, interval: str, limit: int = 100, start_time: Optional[int] = None, end_time: Optional[int] = None) -> List[Dict]:
         """Get historical kline/candlestick data"""
         if not self.client or not self._connected:
             raise ExchangeError("Not connected to exchange")
             
         try:
-            klines = await self.client.get_klines(
-                symbol=symbol,
-                interval=interval,
-                limit=limit
-            )
+            # Build parameters
+            params = {
+                'symbol': symbol,
+                'interval': interval,
+                'limit': limit
+            }
+            
+            # Add time parameters if provided
+            if start_time is not None:
+                params['startTime'] = start_time
+            if end_time is not None:
+                params['endTime'] = end_time
+            
+            klines = await self.client.get_klines(**params)
             
             # Convert to more readable format
             formatted_klines = []

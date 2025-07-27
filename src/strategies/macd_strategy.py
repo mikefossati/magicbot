@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Any, Optional
 from decimal import Decimal
 import structlog
+import asyncio
 
 from .base import BaseStrategy, Signal
 
@@ -66,6 +67,41 @@ class MACDStrategy(BaseStrategy):
             'histogram': histogram
         }
     
+    def _calculate_macd_indicators(self, data: List[Dict]) -> Dict[str, Any]:
+        """Calculate MACD indicators in a CPU-intensive function"""
+        df = pd.DataFrame(data)
+        df['close'] = df['close'].astype(float)
+        
+        macd_data = self._calculate_macd(df['close'])
+        for key, values in macd_data.items():
+            df[key] = values
+        
+        if len(df) < 2:
+            return {'error': 'insufficient_data'}
+        
+        current_macd = df['macd'].iloc[-1]
+        current_signal = df['signal'].iloc[-1]
+        current_histogram = df['histogram'].iloc[-1]
+        prev_macd = df['macd'].iloc[-2]
+        prev_signal = df['signal'].iloc[-2]
+        prev_histogram = df['histogram'].iloc[-2]
+        current_price = df['close'].iloc[-1]
+        
+        # Check for NaN values
+        if any(pd.isna(val) for val in [current_macd, current_signal, current_histogram,
+                                       prev_macd, prev_signal, prev_histogram]):
+            return {'error': 'nan_values'}
+        
+        return {
+            'current_macd': current_macd,
+            'current_signal': current_signal,
+            'current_histogram': current_histogram,
+            'prev_macd': prev_macd,
+            'prev_signal': prev_signal,
+            'prev_histogram': prev_histogram,
+            'current_price': current_price
+        }
+    
     async def generate_signals(self, market_data: Dict[str, Any]) -> List[Signal]:
         """Generate trading signals based on MACD"""
         signals = []
@@ -94,29 +130,21 @@ class MACDStrategy(BaseStrategy):
                          required=required_data)
             return None
         
-        df = pd.DataFrame(data)
-        df['close'] = df['close'].astype(float)
+        # Run CPU-intensive pandas operations in thread pool
+        macd_results = await asyncio.to_thread(self._calculate_macd_indicators, data)
         
-        macd_data = self._calculate_macd(df['close'])
-        for key, values in macd_data.items():
-            df[key] = values
+        # Handle errors from calculation
+        if 'error' in macd_results:
+            if macd_results['error'] in ['insufficient_data', 'nan_values']:
+                return None
         
-        if len(df) < 2:
-            return None
-        
-        current_macd = df['macd'].iloc[-1]
-        current_signal = df['signal'].iloc[-1]
-        current_histogram = df['histogram'].iloc[-1]
-        prev_macd = df['macd'].iloc[-2]
-        prev_signal = df['signal'].iloc[-2]
-        prev_histogram = df['histogram'].iloc[-2]
-        
-        # Check for NaN values
-        if any(pd.isna(val) for val in [current_macd, current_signal, current_histogram,
-                                       prev_macd, prev_signal, prev_histogram]):
-            return None
-        
-        current_price = Decimal(str(df['close'].iloc[-1]))
+        current_macd = macd_results['current_macd']
+        current_signal = macd_results['current_signal']
+        current_histogram = macd_results['current_histogram']
+        prev_macd = macd_results['prev_macd']
+        prev_signal = macd_results['prev_signal']
+        prev_histogram = macd_results['prev_histogram']
+        current_price = Decimal(str(macd_results['current_price']))
         
         signal_action = 'HOLD'
         confidence = 0.0

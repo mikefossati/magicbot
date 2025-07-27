@@ -8,11 +8,13 @@ api:
   port: 8000
   debug: false
 
-exchanges:
+exchange:
   binance:
-    sandbox: false
-    api_key: ""
-    api_secret: ""
+    testnet: false
+    api_key: "${BINANCE_API_KEY}"
+    secret_key: "${BINANCE_SECRET_KEY}"
+    # Separate setting for backtesting data source
+    backtesting_use_mainnet: true
 
 logging:
   level: "INFO"

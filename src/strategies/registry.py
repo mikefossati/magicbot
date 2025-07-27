@@ -12,6 +12,8 @@ from .stochastic_strategy import StochasticStrategy
 from .mean_reversion_rsi import MeanReversionRSI
 from .ema_scalping_strategy import EMAScalpingStrategy
 from .day_trading_strategy import DayTradingStrategy
+from .vlam_consolidation_strategy import VLAMConsolidationStrategy
+from .momentum_trading_strategy import MomentumTradingStrategy
 
 logger = structlog.get_logger()
 
@@ -26,6 +28,8 @@ STRATEGY_REGISTRY: Dict[str, Type[BaseStrategy]] = {
     'mean_reversion_rsi': MeanReversionRSI,
     'ema_scalping_strategy': EMAScalpingStrategy,
     'day_trading_strategy': DayTradingStrategy,
+    'vlam_consolidation_strategy': VLAMConsolidationStrategy,
+    'momentum_trading_strategy': MomentumTradingStrategy,
 }
 
 def get_strategy_class(strategy_name: str) -> Type[BaseStrategy]:

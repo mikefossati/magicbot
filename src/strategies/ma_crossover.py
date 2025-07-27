@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Any, Optional
 from decimal import Decimal
 import structlog
+import asyncio
 
 from .base import BaseStrategy, Signal
 
@@ -63,15 +64,8 @@ class MovingAverageCrossover(BaseStrategy):
         
         return signals
     
-    async def _analyze_symbol(self, symbol: str, data: List[Dict]) -> Optional[Signal]:
-        """Analyze a single symbol for trading signals"""
-        if len(data) < self.slow_period:
-            logger.warning("Insufficient data for analysis", 
-                         symbol=symbol, 
-                         data_points=len(data),
-                         required=self.slow_period)
-            return None
-        
+    def _calculate_moving_averages(self, data: List[Dict]) -> Dict[str, Any]:
+        """Calculate moving averages in a CPU-intensive function"""
         # Convert to DataFrame for easier analysis
         df = pd.DataFrame(data)
         df['close'] = df['close'].astype(float)
@@ -82,18 +76,50 @@ class MovingAverageCrossover(BaseStrategy):
         
         # Get the last few values to determine crossover
         if len(df) < 2:
-            return None
+            return {'error': 'insufficient_data'}
         
         current_fast = df['fast_ma'].iloc[-1]
         current_slow = df['slow_ma'].iloc[-1]
         prev_fast = df['fast_ma'].iloc[-2]
         prev_slow = df['slow_ma'].iloc[-2]
+        current_price = df['close'].iloc[-1]
         
         # Check for NaN values
         if pd.isna(current_fast) or pd.isna(current_slow) or pd.isna(prev_fast) or pd.isna(prev_slow):
+            return {'error': 'nan_values'}
+        
+        return {
+            'current_fast': current_fast,
+            'current_slow': current_slow,
+            'prev_fast': prev_fast,
+            'prev_slow': prev_slow,
+            'current_price': current_price
+        }
+
+    async def _analyze_symbol(self, symbol: str, data: List[Dict]) -> Optional[Signal]:
+        """Analyze a single symbol for trading signals"""
+        if len(data) < self.slow_period:
+            logger.warning("Insufficient data for analysis", 
+                         symbol=symbol, 
+                         data_points=len(data),
+                         required=self.slow_period)
             return None
         
-        current_price = Decimal(str(df['close'].iloc[-1]))
+        # Run CPU-intensive pandas operations in thread pool
+        ma_results = await asyncio.to_thread(self._calculate_moving_averages, data)
+        
+        # Handle errors from calculation
+        if 'error' in ma_results:
+            if ma_results['error'] == 'insufficient_data':
+                return None
+            elif ma_results['error'] == 'nan_values':
+                return None
+        
+        current_fast = ma_results['current_fast']
+        current_slow = ma_results['current_slow']
+        prev_fast = ma_results['prev_fast']
+        prev_slow = ma_results['prev_slow']
+        current_price = Decimal(str(ma_results['current_price']))
         
         # Determine signal type
         signal_action = 'HOLD'

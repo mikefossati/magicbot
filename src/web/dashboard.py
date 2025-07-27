@@ -173,3 +173,10 @@ def setup_web_routes(app: FastAPI):
             "request": request,
             "performance": performance
         })
+    
+    @app.get("/backtest", response_class=HTMLResponse)
+    async def backtest_page(request: Request):
+        """Backtesting dashboard page"""
+        return templates.TemplateResponse("backtest.html", {
+            "request": request
+        })

@@ -9,7 +9,7 @@ from ..exchanges.binance_exchange import BinanceExchange
 from ..database.connection import db
 from ..logging.logger_config import setup_logging
 from ..web.dashboard import setup_web_routes
-from .routes import trading, strategies
+from .routes import trading, strategies, backtesting
 
 # Setup logging
 setup_logging(log_level=getattr(settings, 'log_level', 'INFO'))
@@ -79,6 +79,7 @@ setup_web_routes(app)
 # Include API routers
 app.include_router(trading.router, prefix="/api/v1/trading", tags=["trading"])
 app.include_router(strategies.router, prefix="/api/v1/strategies", tags=["strategies"])
+app.include_router(backtesting.router, prefix="/api/v1/backtesting", tags=["backtesting"])
 
 @app.get("/")
 async def root():

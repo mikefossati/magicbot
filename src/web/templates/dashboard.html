@@ -23,6 +23,9 @@
             border-radius: 15px;
             margin-bottom: 20px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         
         .dashboard-grid {
@@ -123,9 +126,16 @@
     
     <div class="container">
         <div class="header">
-            <h1>🤖 Magicbot Trading Dashboard</h1>
-            <p>Real-time algorithmic trading system monitoring</p>
-            <p><small>Last updated: <span id="lastUpdated">{{ data.last_updated }}</span></small></p>
+            <div>
+                <h1>🤖 Magicbot Trading Dashboard</h1>
+                <p>Real-time algorithmic trading system monitoring</p>
+                <p><small>Last updated: <span id="lastUpdated">{{ data.last_updated }}</span></small></p>
+            </div>
+            <div>
+                <button class="btn" onclick="window.location.href='/backtest'" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; padding: 10px 20px; cursor: pointer; font-weight: 600;">
+                    📊 Backtesting
+                </button>
+            </div>
         </div>
         
         <div class="dashboard-grid">

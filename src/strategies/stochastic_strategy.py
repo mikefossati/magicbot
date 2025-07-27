@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Any, Optional
 from decimal import Decimal
 import structlog
+import asyncio
 
 from .base import BaseStrategy, Signal
 
@@ -71,6 +72,42 @@ class StochasticStrategy(BaseStrategy):
             'lowest_low': lowest_low
         }
     
+    def _calculate_stochastic_indicators(self, data: List[Dict]) -> Dict[str, Any]:
+        """Calculate Stochastic indicators in a CPU-intensive function"""
+        df = pd.DataFrame(data)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['close'] = df['close'].astype(float)
+        
+        stoch_data = self._calculate_stochastic(df['high'], df['low'], df['close'])
+        for key, values in stoch_data.items():
+            df[key] = values
+        
+        if len(df) < 2:
+            return {'error': 'insufficient_data'}
+        
+        current_k = df['k_percent'].iloc[-1]
+        current_d = df['d_percent'].iloc[-1]
+        prev_k = df['k_percent'].iloc[-2]
+        prev_d = df['d_percent'].iloc[-2]
+        current_price = df['close'].iloc[-1]
+        
+        # Check for NaN values
+        if any(pd.isna(val) for val in [current_k, current_d, prev_k, prev_d]):
+            return {'error': 'nan_values'}
+        
+        # Calculate divergence
+        divergence = self._detect_divergence(df['close'], df['k_percent'], self.divergence_lookback)
+        
+        return {
+            'current_k': current_k,
+            'current_d': current_d,
+            'prev_k': prev_k,
+            'prev_d': prev_d,
+            'current_price': current_price,
+            'divergence': divergence
+        }
+    
     def _detect_divergence(self, prices: pd.Series, oscillator: pd.Series, lookback: int) -> str:
         """Detect bullish or bearish divergence"""
         if len(prices) < lookback or len(oscillator) < lookback:
@@ -121,35 +158,23 @@ class StochasticStrategy(BaseStrategy):
                          required=required_data)
             return None
         
-        df = pd.DataFrame(data)
-        df['high'] = df['high'].astype(float)
-        df['low'] = df['low'].astype(float)
-        df['close'] = df['close'].astype(float)
+        # Run CPU-intensive pandas operations in thread pool
+        stoch_results = await asyncio.to_thread(self._calculate_stochastic_indicators, data)
         
-        stoch_data = self._calculate_stochastic(df['high'], df['low'], df['close'])
-        for key, values in stoch_data.items():
-            df[key] = values
+        # Handle errors from calculation
+        if 'error' in stoch_results:
+            if stoch_results['error'] in ['insufficient_data', 'nan_values']:
+                return None
         
-        if len(df) < 2:
-            return None
-        
-        current_k = df['k_percent'].iloc[-1]
-        current_d = df['d_percent'].iloc[-1]
-        prev_k = df['k_percent'].iloc[-2]
-        prev_d = df['d_percent'].iloc[-2]
-        current_price = df['close'].iloc[-1]
-        
-        # Check for NaN values
-        if any(pd.isna(val) for val in [current_k, current_d, prev_k, prev_d]):
-            return None
-        
-        current_price_decimal = Decimal(str(current_price))
+        current_k = stoch_results['current_k']
+        current_d = stoch_results['current_d']
+        prev_k = stoch_results['prev_k']
+        prev_d = stoch_results['prev_d']
+        current_price_decimal = Decimal(str(stoch_results['current_price']))
+        divergence = stoch_results['divergence']
         
         signal_action = 'HOLD'
         confidence = 0.0
-        
-        # Detect divergence
-        divergence = self._detect_divergence(df['close'], df['k_percent'], self.divergence_lookback)
         
         # Buy signals
         # 1. Oversold bounce: %K crosses above %D in oversold territory

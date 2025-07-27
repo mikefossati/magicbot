@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magicbot - Backtesting Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+        
+        .container { 
+            max-width: 1600px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 20px;
+            height: 100vh;
+        }
+        
+        .header {
+            grid-column: 1 / -1;
+            background: rgba(255,255,255,0.95);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .sidebar {
+            background: rgba(255,255,255,0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            overflow-y: auto;
+            max-height: calc(100vh - 140px);
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-rows: 1fr auto;
+            gap: 20px;
+        }
+        
+        .chart-container {
+            background: rgba(255,255,255,0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            min-height: 500px;
+        }
+        
+        .results-panel {
+            background: rgba(255,255,255,0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+            width: 100%;
+            margin-top: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
+        }
+        
+        .progress-container {
+            margin: 20px 0;
+            background: #f1f5f9;
+            border-radius: 10px;
+            overflow: hidden;
+            height: 20px;
+            position: relative;
+        }
+        
+        .progress-bar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100%;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .parameter-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        
+        .parameter-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .parameter-item label {
+            font-size: 12px;
+            margin-bottom: 3px;
+            font-weight: 500;
+        }
+        
+        .parameter-item input {
+            padding: 6px;
+            font-size: 12px;
+        }
+        
+        .parameter-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+        
+        .parameter-section h4 {
+            margin: 0 0 10px 0;
+            color: #4a5568;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .parameter-section .parameter-grid {
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
+        
+        .section {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .section:last-child {
+            border-bottom: none;
+        }
+        
+        .section h3 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-card {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+        
+        .metric-label {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 5px;
+        }
+        
+        .positive { color: #38a169; }
+        .negative { color: #e53e3e; }
+        .neutral { color: #718096; }
+        
+        .status-indicator {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .status-pending { background: #fed7d7; color: #c53030; }
+        .status-running { background: #feebc8; color: #dd6b20; }
+        .status-completed { background: #c6f6d5; color: #2f855a; }
+        .status-failed { background: #fed7d7; color: #c53030; }
+        
+        .trades-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        
+        .trades-table th,
+        .trades-table td {
+            padding: 6px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .trades-table th {
+            background: #f7fafc;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .hidden { display: none; }
+        
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto 1fr auto;
+            }
+            
+            .sidebar {
+                max-height: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>🤖 Magicbot Backtesting Dashboard</h1>
+                <p>Test and optimize your trading strategies</p>
+            </div>
+            <div>
+                <button class="btn btn-secondary" onclick="window.location.href='/'">← Main Dashboard</button>
+            </div>
+        </div>
+        
+        <div class="sidebar">
+            <!-- Strategy Selection -->
+            <div class="section">
+                <h3>📊 Strategy Configuration</h3>
+                <div class="form-group">
+                    <label for="strategySelect">Strategy</label>
+                    <select id="strategySelect" onchange="loadStrategyParameters()">
+                        <option value="">Select Strategy...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="symbolSelect">Trading Pair</label>
+                    <select id="symbolSelect">
+                        <option value="">Select Symbol...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="timeframeSelect">Timeframe</label>
+                    <select id="timeframeSelect">
+                        <option value="">Select Timeframe...</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Date Range -->
+            <div class="section">
+                <h3>📅 Test Period</h3>
+                <div class="form-group">
+                    <label for="startDate">Start Date</label>
+                    <input type="datetime-local" id="startDate">
+                </div>
+                
+                <div class="form-group">
+                    <label for="endDate">End Date</label>
+                    <input type="datetime-local" id="endDate">
+                </div>
+            </div>
+            
+            <!-- Capital & Risk -->
+            <div class="section">
+                <h3>💰 Capital & Risk</h3>
+                <div class="form-group">
+                    <label for="initialCapital">Initial Capital ($)</label>
+                    <input type="number" id="initialCapital" value="10000" min="100" step="100">
+                </div>
+                
+                <div class="parameter-grid">
+                    <div class="parameter-item">
+                        <label for="commissionRate">Commission (%)</label>
+                        <input type="number" id="commissionRate" value="0.1" min="0" max="1" step="0.01">
+                    </div>
+                    <div class="parameter-item">
+                        <label for="slippageRate">Slippage (%)</label>
+                        <input type="number" id="slippageRate" value="0.05" min="0" max="1" step="0.01">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Strategy Parameters -->
+            <div class="section">
+                <h3>⚙️ Strategy Parameters</h3>
+                
+                <!-- Presets selector (only shown for day trading) -->
+                <div id="presetsContainer" class="hidden" style="margin-bottom: 15px;">
+                    <div class="form-group">
+                        <label for="presetSelect">Configuration Preset</label>
+                        <select id="presetSelect" onchange="applyPreset()">
+                            <option value="">Custom Configuration</option>
+                        </select>
+                    </div>
+                    <div id="presetDescription" class="neutral" style="font-size: 12px; margin-top: 5px;"></div>
+                </div>
+                
+                <div id="parametersContainer">
+                    <p class="neutral">Select a strategy to configure parameters</p>
+                </div>
+            </div>
+            
+            <!-- Controls -->
+            <div class="section">
+                <button class="btn" id="runBacktestBtn" onclick="runBacktest()">
+                    🚀 Run Backtest
+                </button>
+                <button class="btn btn-secondary hidden" id="stopBacktestBtn" onclick="stopBacktest()">
+                    ⏹️ Stop Backtest
+                </button>
+                
+                <div class="progress-container hidden" id="progressContainer">
+                    <div class="progress-bar" id="progressBar"></div>
+                    <div class="progress-text" id="progressText">0%</div>
+                </div>
+                <div id="statusMessage" class="neutral" style="margin-top: 10px; font-size: 14px;"></div>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="chart-container">
+                <div id="priceChart" style="width: 100%; height: 100%;"></div>
+                <div id="chartPlaceholder" class="neutral" style="text-align: center; padding-top: 200px;">
+                    📈 Run a backtest to see price chart with signals
+                </div>
+            </div>
+            
+            <div class="results-panel">
+                <h3>📊 Backtest Results</h3>
+                <div id="resultsContent">
+                    <div id="metricsGrid" class="metrics-grid hidden"></div>
+                    <div id="tradesTable" class="hidden"></div>
+                    <div id="resultsPlaceholder" class="neutral">
+                        Run a backtest to see detailed results and performance metrics
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Global state
+        let currentSession = null;
+        let strategies = [];
+        let symbols = [];
+        let timeframes = [];
+        let pollInterval = null;
+        let currentPresets = {};
+        let currentParameters = [];
+        
+        // Initialize dashboard
+        async function initDashboard() {
+            try {
+                await Promise.all([
+                    loadStrategies(),
+                    loadSymbols(),
+                    loadTimeframes()
+                ]);
+                
+                // Set default dates (last 30 days)
+                const endDate = new Date();
+                const startDate = new Date(endDate - 30 * 24 * 60 * 60 * 1000);
+                
+                document.getElementById('startDate').value = formatDateForInput(startDate);
+                document.getElementById('endDate').value = formatDateForInput(endDate);
+                
+                updateStatus('Ready to run backtest');
+            } catch (error) {
+                console.error('Failed to initialize dashboard:', error);
+                updateStatus('Failed to load dashboard data', 'error');
+            }
+        }
+        
+        async function loadStrategies() {
+            const response = await fetch('/api/v1/backtesting/strategies');
+            strategies = await response.json();
+            
+            const select = document.getElementById('strategySelect');
+            select.innerHTML = '<option value="">Select Strategy...</option>';
+            
+            strategies.forEach(strategy => {
+                const option = document.createElement('option');
+                option.value = strategy.name;
+                option.textContent = strategy.display_name;
+                select.appendChild(option);
+            });
+        }
+        
+        async function loadSymbols() {
+            const response = await fetch('/api/v1/backtesting/symbols');
+            const data = await response.json();
+            symbols = data.symbols;
+            
+            const select = document.getElementById('symbolSelect');
+            select.innerHTML = '<option value="">Select Symbol...</option>';
+            
+            symbols.forEach(symbol => {
+                const option = document.createElement('option');
+                option.value = symbol;
+                option.textContent = symbol;
+                select.appendChild(option);
+            });
+        }
+        
+        async function loadTimeframes() {
+            const response = await fetch('/api/v1/backtesting/timeframes');
+            const data = await response.json();
+            timeframes = data.timeframes;
+            
+            const select = document.getElementById('timeframeSelect');
+            select.innerHTML = '<option value="">Select Timeframe...</option>';
+            
+            timeframes.forEach(tf => {
+                const option = document.createElement('option');
+                option.value = tf.value;
+                option.textContent = tf.label;
+                select.appendChild(option);
+            });
+        }
+        
+        async function loadStrategyParameters() {
+            const strategyName = document.getElementById('strategySelect').value;
+            const container = document.getElementById('parametersContainer');
+            const presetsContainer = document.getElementById('presetsContainer');
+            
+            if (!strategyName) {
+                container.innerHTML = '<p class="neutral">Select a strategy to configure parameters</p>';
+                presetsContainer.classList.add('hidden');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/v1/backtesting/strategies/${strategyName}/parameters`);
+                const data = await response.json();
+                
+                // Store current parameters and presets
+                currentParameters = data.parameters;
+                currentPresets = data.presets || {};
+                
+                // Show presets selector for day trading strategy
+                if (Object.keys(currentPresets).length > 0) {
+                    loadPresets();
+                    presetsContainer.classList.remove('hidden');
+                } else {
+                    presetsContainer.classList.add('hidden');
+                }
+                
+                // Load parameter inputs
+                loadParameterInputs(data.parameters, data.default_config);
+                
+            } catch (error) {
+                console.error('Failed to load strategy parameters:', error);
+                container.innerHTML = '<p class="negative">Failed to load parameters</p>';
+                presetsContainer.classList.add('hidden');
+            }
+        }
+        
+        function loadPresets() {
+            const presetSelect = document.getElementById('presetSelect');
+            presetSelect.innerHTML = '<option value="">Custom Configuration</option>';
+            
+            Object.keys(currentPresets).forEach(presetKey => {
+                const preset = currentPresets[presetKey];
+                const option = document.createElement('option');
+                option.value = presetKey;
+                option.textContent = preset.name;
+                presetSelect.appendChild(option);
+            });
+        }
+        
+        function loadParameterInputs(parameters, defaultConfig) {
+            const container = document.getElementById('parametersContainer');
+            container.innerHTML = '';
+            
+            // Group parameters by category for day trading strategy
+            const strategyName = document.getElementById('strategySelect').value;
+            if (strategyName && strategyName.includes('day_trading')) {
+                loadParametersSectioned(parameters, defaultConfig);
+            } else {
+                loadParametersSimple(parameters, defaultConfig);
+            }
+        }
+        
+        function loadParametersSectioned(parameters, defaultConfig) {
+            const container = document.getElementById('parametersContainer');
+            
+            const sections = {
+                'Basic': ['position_size'],
+                'EMA Trend': ['fast_ema', 'medium_ema', 'slow_ema'],
+                'RSI Momentum': ['rsi_period', 'rsi_overbought', 'rsi_oversold'],
+                'MACD Settings': ['macd_fast', 'macd_slow', 'macd_signal'],
+                'Signal Scoring': ['min_signal_score', 'strong_signal_score'],
+                'Risk Management': ['stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct'],
+                'Trading Limits': ['max_daily_trades'],
+                'Volume Analysis': ['volume_multiplier', 'volume_period'],
+                'Support/Resistance': ['support_resistance_threshold', 'pivot_period'],
+                'Leverage': ['leverage', 'use_leverage']
+            };
+            
+            Object.keys(sections).forEach(sectionName => {
+                const sectionParams = sections[sectionName];
+                const sectionDiv = document.createElement('div');
+                sectionDiv.className = 'parameter-section';
+                
+                const sectionTitle = document.createElement('h4');
+                sectionTitle.textContent = sectionName;
+                sectionDiv.appendChild(sectionTitle);
+                
+                const gridDiv = document.createElement('div');
+                gridDiv.className = 'parameter-grid';
+                
+                sectionParams.forEach(paramName => {
+                    const param = parameters.find(p => p.name === paramName);
+                    if (param) {
+                        const paramDiv = createParameterInput(param, defaultConfig);
+                        gridDiv.appendChild(paramDiv);
+                    }
+                });
+                
+                if (gridDiv.children.length > 0) {
+                    sectionDiv.appendChild(gridDiv);
+                    container.appendChild(sectionDiv);
+                }
+            });
+        }
+        
+        function loadParametersSimple(parameters, defaultConfig) {
+            const container = document.getElementById('parametersContainer');
+            
+            parameters.forEach(param => {
+                const paramDiv = createParameterInput(param, defaultConfig);
+                container.appendChild(paramDiv);
+            });
+        }
+        
+        function createParameterInput(param, defaultConfig) {
+            const div = document.createElement('div');
+            div.className = 'parameter-item';
+            
+            const label = document.createElement('label');
+            label.textContent = param.description || param.name;
+            label.setAttribute('for', param.name);
+            
+            const input = document.createElement('input');
+            
+            if (param.type === 'bool') {
+                input.type = 'checkbox';
+                input.checked = defaultConfig[param.name] || param.default;
+            } else {
+                input.type = param.type === 'int' ? 'number' : param.type === 'float' ? 'number' : 'text';
+                input.value = defaultConfig[param.name] || param.default;
+                
+                if (param.type === 'float') {
+                    input.step = '0.01';
+                } else if (param.type === 'int') {
+                    input.step = '1';
+                }
+                
+                if (param.min_value !== null) {
+                    input.min = param.min_value;
+                }
+                if (param.max_value !== null) {
+                    input.max = param.max_value;
+                }
+            }
+            
+            input.id = param.name;
+            input.name = param.name;
+            
+            div.appendChild(label);
+            div.appendChild(input);
+            return div;
+        }
+        
+        function applyPreset() {
+            const presetKey = document.getElementById('presetSelect').value;
+            const descriptionEl = document.getElementById('presetDescription');
+            
+            if (!presetKey) {
+                descriptionEl.textContent = '';
+                return;
+            }
+            
+            const preset = currentPresets[presetKey];
+            if (!preset) return;
+            
+            // Update description
+            descriptionEl.textContent = preset.description;
+            
+            // Apply preset configuration to inputs
+            Object.keys(preset.config).forEach(paramName => {
+                const input = document.getElementById(paramName);
+                if (input) {
+                    if (input.type === 'checkbox') {
+                        input.checked = preset.config[paramName];
+                    } else {
+                        input.value = preset.config[paramName];
+                    }
+                }
+            });
+        }
+        
+        async function runBacktest() {
+            // Validate inputs
+            const strategyName = document.getElementById('strategySelect').value;
+            const symbol = document.getElementById('symbolSelect').value;
+            const timeframe = document.getElementById('timeframeSelect').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!strategyName || !symbol || !timeframe || !startDate || !endDate) {
+                updateStatus('Please fill in all required fields', 'error');
+                return;
+            }
+            
+            // Collect parameters
+            const parameters = {};
+            const paramInputs = document.querySelectorAll('#parametersContainer input');
+            paramInputs.forEach(input => {
+                let value;
+                if (input.type === 'checkbox') {
+                    value = input.checked;
+                } else if (input.type === 'number') {
+                    value = parseFloat(input.value);
+                } else {
+                    value = input.value;
+                }
+                parameters[input.name] = value;
+            });
+            
+            // Prepare request
+            const request = {
+                strategy_name: strategyName,
+                symbol: symbol,
+                timeframe: timeframe,
+                start_date: new Date(startDate).toISOString(),
+                end_date: new Date(endDate).toISOString(),
+                initial_capital: parseFloat(document.getElementById('initialCapital').value),
+                commission_rate: parseFloat(document.getElementById('commissionRate').value) / 100,
+                slippage_rate: parseFloat(document.getElementById('slippageRate').value) / 100,
+                parameters: parameters
+            };
+            
+            try {
+                // Start backtest
+                const response = await fetch('/api/v1/backtesting/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(request)
+                });
+                
+                const data = await response.json();
+                currentSession = data.session_id;
+                
+                // Update UI
+                setBacktestRunning(true);
+                updateProgress(0, 'Backtest started...');
+                
+                // Start polling for progress
+                pollInterval = setInterval(pollBacktestStatus, 1000);
+                
+            } catch (error) {
+                console.error('Failed to start backtest:', error);
+                updateStatus('Failed to start backtest', 'error');
+            }
+        }
+        
+        async function pollBacktestStatus() {
+            if (!currentSession) return;
+            
+            try {
+                const response = await fetch(`/api/v1/backtesting/status/${currentSession}`);
+                const status = await response.json();
+                
+                updateProgress(status.progress, status.message);
+                
+                if (status.status === 'completed') {
+                    clearInterval(pollInterval);
+                    setBacktestRunning(false);
+                    await loadBacktestResults();
+                } else if (status.status === 'failed') {
+                    clearInterval(pollInterval);
+                    setBacktestRunning(false);
+                    updateStatus(`Backtest failed: ${status.message}`, 'error');
+                }
+            } catch (error) {
+                console.error('Failed to poll status:', error);
+                clearInterval(pollInterval);
+                setBacktestRunning(false);
+                updateStatus('Failed to get backtest status', 'error');
+            }
+        }
+        
+        async function loadBacktestResults() {
+            if (!currentSession) return;
+            
+            try {
+                const response = await fetch(`/api/v1/backtesting/results/${currentSession}`);
+                const results = await response.json();
+                
+                displayResults(results);
+                displayChart(results);
+                updateStatus('Backtest completed successfully', 'success');
+                
+            } catch (error) {
+                console.error('Failed to load results:', error);
+                updateStatus('Failed to load backtest results', 'error');
+            }
+        }
+        
+        function displayResults(results) {
+            const metricsGrid = document.getElementById('metricsGrid');
+            const tradesTable = document.getElementById('tradesTable');
+            const placeholder = document.getElementById('resultsPlaceholder');
+            
+            // Hide placeholder
+            placeholder.classList.add('hidden');
+            metricsGrid.classList.remove('hidden');
+            tradesTable.classList.remove('hidden');
+            
+            // Display metrics
+            const capital = results.capital;
+            const trades = results.trades;
+            const risk = results.risk_metrics;
+            
+            metricsGrid.innerHTML = `
+                <div class="metric-card">
+                    <div class="metric-value ${capital.total_return_pct >= 0 ? 'positive' : 'negative'}">
+                        ${capital.total_return_pct.toFixed(2)}%
+                    </div>
+                    <div class="metric-label">Total Return</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value ${capital.final >= capital.initial ? 'positive' : 'negative'}">
+                        $${capital.final.toFixed(2)}
+                    </div>
+                    <div class="metric-label">Final Capital</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">${trades.total}</div>
+                    <div class="metric-label">Total Trades</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value ${trades.win_rate_pct >= 50 ? 'positive' : 'negative'}">
+                        ${trades.win_rate_pct.toFixed(1)}%
+                    </div>
+                    <div class="metric-label">Win Rate</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value ${risk.sharpe_ratio >= 1 ? 'positive' : 'neutral'}">
+                        ${risk.sharpe_ratio.toFixed(2)}
+                    </div>
+                    <div class="metric-label">Sharpe Ratio</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value ${risk.max_drawdown_pct <= 10 ? 'positive' : 'negative'}">
+                        ${risk.max_drawdown_pct.toFixed(2)}%
+                    </div>
+                    <div class="metric-label">Max Drawdown</div>
+                </div>
+            `;
+            
+            // Display trades table
+            if (results.trades_detail && results.trades_detail.length > 0) {
+                let tableHTML = `
+                    <h4>Recent Trades</h4>
+                    <table class="trades-table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Entry</th>
+                                <th>Exit</th>
+                                <th>P&L</th>
+                                <th>P&L %</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                results.trades_detail.slice(-10).forEach(trade => {
+                    tableHTML += `
+                        <tr>
+                            <td>${trade.symbol}</td>
+                            <td>$${trade.entry_price.toFixed(2)}</td>
+                            <td>$${trade.exit_price.toFixed(2)}</td>
+                            <td class="${trade.pnl >= 0 ? 'positive' : 'negative'}">$${trade.pnl.toFixed(2)}</td>
+                            <td class="${trade.pnl_pct >= 0 ? 'positive' : 'negative'}">${trade.pnl_pct.toFixed(2)}%</td>
+                        </tr>
+                    `;
+                });
+                
+                tableHTML += '</tbody></table>';
+                tradesTable.innerHTML = tableHTML;
+            }
+        }
+        
+        function displayChart(results) {
+            const chartDiv = document.getElementById('priceChart');
+            const placeholder = document.getElementById('chartPlaceholder');
+            
+            // Hide placeholder
+            placeholder.style.display = 'none';
+            chartDiv.style.display = 'block';
+            
+            if (!results.ohlcv_data || results.ohlcv_data.length === 0) {
+                chartDiv.innerHTML = '<p class="neutral">No price data available</p>';
+                return;
+            }
+            
+            // Prepare OHLC data
+            const timestamps = results.ohlcv_data.map(d => new Date(d.timestamp));
+            const opens = results.ohlcv_data.map(d => d.open);
+            const highs = results.ohlcv_data.map(d => d.high);
+            const lows = results.ohlcv_data.map(d => d.low);
+            const closes = results.ohlcv_data.map(d => d.close);
+            
+            // Prepare signal markers
+            const buySignals = [];
+            const sellSignals = [];
+            const entryMarkers = [];
+            const exitMarkers = [];
+            
+            if (results.signal_markers) {
+                results.signal_markers.forEach(signal => {
+                    const timestamp = new Date(signal.timestamp);
+                    if (signal.action === 'BUY') {
+                        buySignals.push({ x: timestamp, y: signal.price });
+                    } else if (signal.action === 'SELL') {
+                        sellSignals.push({ x: timestamp, y: signal.price });
+                    }
+                });
+            }
+            
+            if (results.trade_markers) {
+                results.trade_markers.forEach(marker => {
+                    const timestamp = new Date(marker.timestamp);
+                    if (marker.type === 'entry') {
+                        entryMarkers.push({ x: timestamp, y: marker.price });
+                    } else if (marker.type === 'exit') {
+                        exitMarkers.push({ 
+                            x: timestamp, 
+                            y: marker.price,
+                            color: marker.pnl >= 0 ? 'green' : 'red'
+                        });
+                    }
+                });
+            }
+            
+            // Create plot
+            const traces = [
+                {
+                    x: timestamps,
+                    open: opens,
+                    high: highs,
+                    low: lows,
+                    close: closes,
+                    type: 'candlestick',
+                    name: results.configuration.symbol,
+                    increasing: { line: { color: '#26a69a' } },
+                    decreasing: { line: { color: '#ef5350' } }
+                }
+            ];
+            
+            // Add signal markers
+            if (buySignals.length > 0) {
+                traces.push({
+                    x: buySignals.map(s => s.x),
+                    y: buySignals.map(s => s.y),
+                    mode: 'markers',
+                    type: 'scatter',
+                    name: 'Buy Signals',
+                    marker: {
+                        symbol: 'triangle-up',
+                        size: 10,
+                        color: 'green'
+                    }
+                });
+            }
+            
+            if (sellSignals.length > 0) {
+                traces.push({
+                    x: sellSignals.map(s => s.x),
+                    y: sellSignals.map(s => s.y),
+                    mode: 'markers',
+                    type: 'scatter',
+                    name: 'Sell Signals',
+                    marker: {
+                        symbol: 'triangle-down',
+                        size: 10,
+                        color: 'red'
+                    }
+                });
+            }
+            
+            // Add entry/exit markers
+            if (entryMarkers.length > 0) {
+                traces.push({
+                    x: entryMarkers.map(m => m.x),
+                    y: entryMarkers.map(m => m.y),
+                    mode: 'markers',
+                    type: 'scatter',
+                    name: 'Trade Entries',
+                    marker: {
+                        symbol: 'circle',
+                        size: 8,
+                        color: 'blue'
+                    }
+                });
+            }
+            
+            if (exitMarkers.length > 0) {
+                traces.push({
+                    x: exitMarkers.map(m => m.x),
+                    y: exitMarkers.map(m => m.y),
+                    mode: 'markers',
+                    type: 'scatter',
+                    name: 'Trade Exits',
+                    marker: {
+                        symbol: 'x',
+                        size: 8,
+                        color: exitMarkers.map(m => m.color)
+                    }
+                });
+            }
+            
+            const layout = {
+                title: `${results.configuration.symbol} - ${results.configuration.strategy_name}`,
+                xaxis: { title: 'Time', rangeslider: { visible: false } },
+                yaxis: { title: 'Price ($)' },
+                margin: { t: 50, b: 50, l: 70, r: 50 },
+                height: 450
+            };
+            
+            Plotly.newPlot(chartDiv, traces, layout, { responsive: true });
+        }
+        
+        function setBacktestRunning(running) {
+            const runBtn = document.getElementById('runBacktestBtn');
+            const stopBtn = document.getElementById('stopBacktestBtn');
+            const progressContainer = document.getElementById('progressContainer');
+            
+            if (running) {
+                runBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+                progressContainer.classList.remove('hidden');
+            } else {
+                runBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
+                progressContainer.classList.add('hidden');
+            }
+        }
+        
+        function updateProgress(percentage, message) {
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            progressBar.style.width = `${percentage}%`;
+            progressText.textContent = `${percentage.toFixed(0)}%`;
+            
+            if (message) {
+                updateStatus(message);
+            }
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.textContent = message;
+            statusEl.className = type === 'error' ? 'negative' : type === 'success' ? 'positive' : 'neutral';
+        }
+        
+        function formatDateForInput(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            
+            return `${year}-${month}-${day}T${hours}:${minutes}`;
+        }
+        
+        function stopBacktest() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+            }
+            setBacktestRunning(false);
+            currentSession = null;
+            updateStatus('Backtest stopped by user');
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', initDashboard);
+    </script>
+</body>
+</html>
