@@ -1,6 +1,7 @@
 from .base import BaseStrategy
 from .signal import Signal
 from .ma_crossover import MovingAverageCrossover
+from .ma_crossover_simple import SimpleMovingAverageCrossover
 from .rsi_strategy import RSIStrategy
 from .bollinger_bands import BollingerBandsStrategy
 from .breakout_strategy import BreakoutStrategy
@@ -34,6 +35,7 @@ __all__ = [
     'BaseStrategy',
     'Signal',
     'MovingAverageCrossover',
+    'SimpleMovingAverageCrossover',
     'RSIStrategy',
     'BollingerBandsStrategy',
     'BreakoutStrategy',

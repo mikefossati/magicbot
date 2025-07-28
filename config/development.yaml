@@ -27,7 +27,7 @@ risk_management:
 
 strategies:
   enabled:
-    - ma_crossover
+    - ma_crossover_simple
     - rsi_strategy
     - bollinger_bands
     - breakout_strategy
@@ -36,6 +36,20 @@ strategies:
     - stochastic_strategy
     - mean_reversion_rsi
     - ema_scalping_strategy
+  
+  ma_crossover_simple:
+    symbols: ["BTCUSDT"]
+    position_size: 0.02    # Larger position for fewer trades
+    fast_period: 8         # Balanced periods for trend capture
+    slow_period: 21        # Classic EMA periods
+    timeframes: ["5m"]     # Use 5m to reduce noise  
+    stop_loss_pct: 2.5     # Wider stops for crypto volatility
+    take_profit_pct: 5.0   # Larger targets for trend following
+    atr_period: 14         # Standard ATR period
+    # Trailing stop loss configuration
+    trailing_stop_enabled: true
+    trailing_stop_distance: 1.8    # Wider trailing stop
+    trailing_stop_type: "percentage"
   
   ma_crossover:
     symbols: ["BTCUSDT", "ETHUSDT"]

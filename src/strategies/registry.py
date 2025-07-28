@@ -4,6 +4,7 @@ import structlog
 from .base import BaseStrategy
 from .config import ConfigLoader, ValidationError
 from .ma_crossover import MovingAverageCrossover
+from .ma_crossover_simple import SimpleMovingAverageCrossover
 from .rsi_strategy import RSIStrategy
 from .bollinger_bands import BollingerBandsStrategy
 from .breakout_strategy import BreakoutStrategy
@@ -19,6 +20,7 @@ logger = structlog.get_logger()
 
 STRATEGY_REGISTRY: Dict[str, Type[BaseStrategy]] = {
     'ma_crossover': MovingAverageCrossover,
+    'ma_crossover_simple': SimpleMovingAverageCrossover,
     'rsi_strategy': RSIStrategy,
     'bollinger_bands': BollingerBandsStrategy,
     'breakout_strategy': BreakoutStrategy,

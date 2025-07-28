@@ -171,8 +171,7 @@ class TestVLAMConsolidationStrategy:
         config = create_vlam_config()
         config['vlam_period'] = 0
         
-        # Manually create strategy without calling parent constructor
-        strategy = VLAMConsolidationStrategy.__new__(VLAMConsolidationStrategy)
+        strategy = VLAMConsolidationStrategy(config)
         strategy.vlam_period = 0
         strategy.atr_period = 14
         strategy.consolidation_min_length = 8
@@ -186,11 +185,15 @@ class TestVLAMConsolidationStrategy:
     
     def test_validate_parameters_invalid_consolidation_length(self):
         """Test parameter validation with invalid consolidation lengths"""
-        strategy = VLAMConsolidationStrategy.__new__(VLAMConsolidationStrategy)
+        config = create_vlam_config()
+        config['consolidation_min_length'] = 20
+        config['consolidation_max_length'] = 15  # Min > Max
+        
+        strategy = VLAMConsolidationStrategy(config)
         strategy.vlam_period = 14
         strategy.atr_period = 14
         strategy.consolidation_min_length = 20
-        strategy.consolidation_max_length = 15  # Min > Max
+        strategy.consolidation_max_length = 15
         strategy.consolidation_tolerance = 0.02
         strategy.spike_min_size = 1.5
         strategy.max_risk_per_trade = 0.02
@@ -200,7 +203,10 @@ class TestVLAMConsolidationStrategy:
     
     def test_validate_parameters_invalid_risk_reward(self):
         """Test parameter validation with invalid risk:reward ratio"""
-        strategy = VLAMConsolidationStrategy.__new__(VLAMConsolidationStrategy)
+        config = create_vlam_config()
+        config['target_risk_reward'] = 0.5  # Less than 1.0
+        
+        strategy = VLAMConsolidationStrategy(config)
         strategy.vlam_period = 14
         strategy.atr_period = 14
         strategy.consolidation_min_length = 8
@@ -208,7 +214,7 @@ class TestVLAMConsolidationStrategy:
         strategy.consolidation_tolerance = 0.02
         strategy.spike_min_size = 1.5
         strategy.max_risk_per_trade = 0.02
-        strategy.target_risk_reward = 0.5  # Less than 1.0
+        strategy.target_risk_reward = 0.5
         
         assert strategy.validate_parameters() is False
     

@@ -126,14 +126,25 @@ class BaseStrategy(ABC):
         atr = metadata.get('atr', None)
         stops = self.risk_manager.calculate_stop_levels(price, action, atr)
         
+        # Add trailing stop loss parameters if enabled
+        trailing_stop_enabled = self.get_parameter_value('trailing_stop_enabled', False)
+        trailing_stop_distance = self.get_parameter_value('trailing_stop_distance', None)
+        trailing_stop_type = self.get_parameter_value('trailing_stop_type', 'percentage')
+        
         signal.metadata.update({
             'stop_loss': stops['stop_loss'],
             'take_profit': stops['take_profit'],
+            'trailing_stop_enabled': trailing_stop_enabled,
+            'trailing_stop_distance': trailing_stop_distance,
+            'trailing_stop_type': trailing_stop_type,
             'risk_manager_params': {
                 'stop_loss_pct': self.risk_manager.stop_loss_pct,
                 'take_profit_pct': self.risk_manager.take_profit_pct,
                 'use_leverage': self.risk_manager.use_leverage,
-                'leverage': self.risk_manager.leverage
+                'leverage': self.risk_manager.leverage,
+                'trailing_stop_enabled': trailing_stop_enabled,
+                'trailing_stop_distance': trailing_stop_distance,
+                'trailing_stop_type': trailing_stop_type
             }
         })
         

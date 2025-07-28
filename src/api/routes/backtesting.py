@@ -287,9 +287,16 @@ async def _execute_backtest(session_id: str, request: BacktestRequest):
         session["message"] = "Fetching market data..."
         session["progress"] = 20.0
         
+        # Use the timeframe from the frontend request
+        fetch_interval = request.timeframe
+        logger.info("Fetching historical data with frontend timeframe",
+                   symbol=request.symbol,
+                   requested_timeframe=request.timeframe,
+                   fetch_interval=fetch_interval)
+        
         historical_data = await data_manager.get_historical_data(
             symbol=request.symbol,
-            interval=request.timeframe,
+            interval=fetch_interval,
             start_date=request.start_date,
             end_date=request.end_date
         )
@@ -307,11 +314,18 @@ async def _execute_backtest(session_id: str, request: BacktestRequest):
         strategy_config = request.parameters.copy()
         strategy_config["symbols"] = [request.symbol]
         
-        # Ensure timeframes is properly formatted as a list
-        if "timeframes" not in strategy_config:
-            strategy_config["timeframes"] = [request.timeframe]
-        elif isinstance(strategy_config["timeframes"], str):
-            strategy_config["timeframes"] = [strategy_config["timeframes"]]
+        # IMPORTANT: Always override timeframes with frontend value
+        # Remove any existing timeframes from frontend params and set our own
+        if "timeframes" in strategy_config:
+            del strategy_config["timeframes"]
+        strategy_config["timeframes"] = [request.timeframe]
+        
+        logger.info("Strategy config for backtest", 
+                   strategy=request.strategy_name,
+                   symbol=request.symbol,
+                   timeframe_from_frontend=request.timeframe,
+                   strategy_config_timeframes=strategy_config["timeframes"],
+                   original_frontend_params=request.parameters)
         
         # Ensure numeric parameters are properly typed
         numeric_params = ['fast_period', 'slow_period', 'rsi_period', 'lookback_periods']

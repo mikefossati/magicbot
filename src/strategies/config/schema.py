@@ -191,6 +191,16 @@ class StrategyParameterSchema:
             description='MACD signal line period'
         ),
         
+        # ATR (Average True Range) parameters
+        'atr_period': ParameterDefinition(
+            name='atr_period',
+            param_type=ParameterType.INTEGER,
+            default=14,
+            min_value=5,
+            max_value=50,
+            description='ATR calculation period for volatility-based stops'
+        ),
+        
         # Risk management parameters
         'stop_loss_pct': ParameterDefinition(
             name='stop_loss_pct',
@@ -216,13 +226,36 @@ class StrategyParameterSchema:
             max_value=50,
             description='Maximum trades per day'
         ),
+        
+        # Trailing stop loss parameters
+        'trailing_stop_enabled': ParameterDefinition(
+            name='trailing_stop_enabled',
+            param_type=ParameterType.BOOLEAN,
+            default=False,
+            description='Enable trailing stop loss'
+        ),
+        'trailing_stop_distance': ParameterDefinition(
+            name='trailing_stop_distance',
+            param_type=ParameterType.FLOAT,
+            default=2.0,
+            min_value=0.1,
+            max_value=20.0,
+            description='Trailing stop distance (percentage or absolute value based on type)'
+        ),
+        'trailing_stop_type': ParameterDefinition(
+            name='trailing_stop_type',
+            param_type=ParameterType.STRING,
+            default='percentage',
+            allowed_values=['percentage', 'absolute'],
+            description='Type of trailing stop: percentage of price or absolute price difference'
+        ),
     }
     
     # Strategy-specific parameter schemas
     STRATEGY_SCHEMAS = {
         'ma_crossover': {
             'required_params': ['symbols', 'position_size', 'fast_period', 'slow_period'],
-            'optional_params': ['timeframes', 'lookback_periods', 'stop_loss_pct', 'take_profit_pct', 'volume_confirmation', 'volume_period', 'volume_multiplier'],
+            'optional_params': ['timeframes', 'lookback_periods', 'stop_loss_pct', 'take_profit_pct', 'volume_confirmation', 'volume_period', 'volume_multiplier', 'trailing_stop_enabled', 'trailing_stop_distance', 'trailing_stop_type'],
             'custom_params': {
                 'momentum_confirmation': ParameterDefinition(
                     name='momentum_confirmation',
@@ -297,9 +330,15 @@ class StrategyParameterSchema:
             }
         },
         
+        'ma_crossover_simple': {
+            'required_params': ['symbols', 'position_size', 'fast_period', 'slow_period'],
+            'optional_params': ['timeframes', 'lookback_periods', 'stop_loss_pct', 'take_profit_pct', 'atr_period', 'trailing_stop_enabled', 'trailing_stop_distance', 'trailing_stop_type'],
+            'custom_params': {}
+        },
+        
         'rsi_strategy': {
             'required_params': ['symbols', 'position_size', 'rsi_period'],
-            'optional_params': ['rsi_oversold', 'rsi_overbought', 'timeframes', 'lookback_periods'],
+            'optional_params': ['rsi_oversold', 'rsi_overbought', 'timeframes', 'lookback_periods', 'stop_loss_pct', 'take_profit_pct', 'trailing_stop_enabled', 'trailing_stop_distance', 'trailing_stop_type'],
             'custom_params': {}
         },
         
@@ -336,7 +375,7 @@ class StrategyParameterSchema:
         
         'breakout_strategy': {
             'required_params': ['symbols', 'position_size'],
-            'optional_params': ['volume_confirmation', 'timeframes', 'lookback_periods'],
+            'optional_params': ['volume_confirmation', 'timeframes', 'lookback_periods', 'stop_loss_pct', 'take_profit_pct', 'trailing_stop_enabled', 'trailing_stop_distance', 'trailing_stop_type'],
             'custom_params': {
                 'lookback_period': ParameterDefinition(
                     name='lookback_period',

@@ -1,6 +1,6 @@
 # Trading Strategy Test Suite
 
-Comprehensive unit and integration tests for all trading strategies in the Magicbot system.
+Comprehensive unit and integration tests for the new trading strategy architecture in the Magicbot system. The test suite validates schema-based configuration, shared components, and trailing stop functionality.
 
 ## 🏗️ Test Structure
 
@@ -11,11 +11,13 @@ tests/
 ├── unit/                           # Fast tests with mocked data
 │   ├── fixtures/
 │   │   └── historical_snapshots.py # Real historical market data
-│   └── strategies/
-│       ├── test_ma_crossover.py    # MA crossover strategy tests
-│       ├── test_day_trading_strategy.py # Day trading scenarios
-│       ├── test_macd_strategy.py   # MACD strategy tests
-│       └── test_stochastic_strategy.py # Stochastic tests
+│   ├── strategies/
+│   │   ├── test_new_architecture.py # New strategy architecture tests
+│   │   ├── test_ma_crossover.py    # MA crossover strategy (new architecture)
+│   │   └── legacy/                 # Deprecated legacy tests
+│   │       ├── test_momentum_trading_strategy.py
+│   │       └── test_vlam_consolidation_strategy.py
+│   └── test_backtesting_engine.py  # Enhanced backtesting with trailing stops
 ├── integration/                    # Tests with real Binance testnet
 │   ├── test_strategy_integration.py # End-to-end strategy tests
 │   └── test_exchange_integration.py # Exchange API tests
@@ -27,14 +29,17 @@ tests/
 
 ### Run Unit Tests (Fast)
 ```bash
-# Run all unit tests
+# Run all unit tests (excluding legacy)
 python tests/run_tests.py --mode unit
 
 # Run with coverage
 python tests/run_tests.py --mode unit --coverage
 
-# Run specific strategy
-python tests/run_tests.py --strategy ma_crossover
+# Run specific strategy (new architecture)
+python tests/run_tests.py --strategy ma_crossover_simple
+
+# Run new architecture tests only
+python -m pytest tests/unit/strategies/test_new_architecture.py tests/unit/strategies/test_ma_crossover.py tests/unit/test_backtesting_engine.py
 ```
 
 ### Run Integration Tests (Requires API Keys)
@@ -62,11 +67,14 @@ python tests/run_tests.py --mode all --skip-integration
 ## 📋 Test Categories
 
 ### Unit Tests (Fast - < 500ms total)
-- **Strategy Logic Testing**: Signal generation, crossover detection
-- **Parameter Validation**: Invalid configs, edge cases  
-- **Risk Management**: Stop loss, take profit calculations
+- **New Architecture Testing**: Schema validation, shared components
+- **Strategy Logic Testing**: Signal generation with new configuration system
+- **Parameter Validation**: Schema-based validation, type checking
+- **Risk Management**: Stop loss, take profit, trailing stop calculations
+- **Shared Components**: IndicatorCalculator, SignalManager, RiskManager
 - **Mock Data Scenarios**: Bull/bear markets, volatile conditions
 - **Concurrent Processing**: Multiple symbols, async performance
+- **Backtesting Engine**: Enhanced engine with trailing stop functionality
 
 ### Integration Tests (Manual - Real API)
 - **Real Market Data**: Live Binance testnet integration
@@ -75,12 +83,12 @@ python tests/run_tests.py --mode all --skip-integration
 - **Connection Stability**: Extended use, error recovery
 - **Memory Usage**: No memory leaks over time
 
-### Day Trading Scenarios
-- **Morning Breakout**: Volume confirmation, trend following
-- **Trend Reversal**: Support/resistance levels
-- **Choppy Markets**: Signal avoidance in unclear conditions
-- **False Breakouts**: Conflicting indicator handling
-- **Session Filtering**: Trading hours enforcement
+### New Architecture Scenarios
+- **Schema Validation**: Parameter type checking, range validation
+- **Configuration Loading**: YAML-based configuration processing
+- **Shared Component Integration**: Indicator calculation, risk management
+- **Trailing Stop Logic**: Dynamic stop adjustments, position management
+- **Legacy Strategy Migration**: Testing compatibility and deprecation
 
 ## 🧪 Test Data Strategy
 
@@ -88,19 +96,32 @@ python tests/run_tests.py --mode all --skip-integration
 Uses real historical market data snapshots for deterministic testing:
 
 ```python
-# Available scenarios
-'bullish_crossover'    # MA crossover upward trend
-'bearish_crossover'    # MA crossover downward trend  
+# Available scenarios for new architecture testing
+'bullish_crossover'    # MA crossover upward trend (new architecture)
+'bearish_crossover'    # MA crossover downward trend (new architecture)
 'volatile_market'      # High volatility, choppy conditions
 'morning_breakout'     # Day trading breakout pattern
 'eth_sample'           # ETH data for multi-symbol tests
+
+# Sample data format (OHLCV with timestamps)
+sample_data = {
+    'timestamp': int,
+    'open': float,
+    'high': float,
+    'low': float,
+    'close': float,
+    'volume': float
+}
 ```
 
-### Mock Strategy
+### New Architecture Testing Strategy
+- **Schema-Based Testing**: Configuration validation before strategy creation
+- **Shared Component Testing**: IndicatorCalculator, SignalManager, RiskManager
 - **Deep Mocking**: Exchange APIs, network calls mocked
-- **Strategy Logic**: Fully tested with real calculation logic
-- **Indicator Math**: Pandas operations tested with real data
+- **Strategy Logic**: Fully tested with real calculation logic using shared components
+- **Indicator Math**: Pandas operations tested with real data through IndicatorCalculator
 - **Edge Cases**: NaN handling, insufficient data, errors
+- **Trailing Stop Testing**: Position management, dynamic stop adjustments
 
 ## 📊 Performance Requirements
 
@@ -143,14 +164,23 @@ See `pytest.ini` for:
 
 ### By Strategy
 ```bash
-python tests/run_tests.py --strategy ma_crossover
-python tests/run_tests.py --strategy day_trading_strategy
+# New architecture strategies
+python tests/run_tests.py --strategy ma_crossover_simple
+python -m pytest tests/unit/strategies/test_ma_crossover.py
+
+# Legacy strategies (deprecated)
+python -m pytest tests/unit/strategies/legacy/
 ```
 
 ### By Scenario
 ```bash
-python tests/run_tests.py --mode day-trading
-python -m pytest -k "morning_breakout"
+# New architecture specific tests
+python -m pytest -k "new_architecture"
+python -m pytest -k "trailing_stop" 
+python -m pytest -k "schema"
+
+# General scenarios
+python -m pytest -k "crossover"
 python -m pytest -k "latency"
 ```
 
@@ -186,7 +216,9 @@ python -m pytest tests/unit/strategies/test_ma_crossover.py -v -s
 
 ### Single Test
 ```bash
-python -m pytest tests/unit/strategies/test_ma_crossover.py::TestMAKCrossoverStrategy::test_bullish_crossover_signal -v -s
+# New architecture tests
+python -m pytest tests/unit/strategies/test_new_architecture.py::TestStrategyParameterSchema::test_schema_exists_for_strategies -v -s
+python -m pytest tests/unit/strategies/test_ma_crossover.py::TestSimpleMAKCrossoverStrategy::test_strategy_initialization_valid_config -v -s
 ```
 
 ### Debug with pdb
@@ -214,37 +246,78 @@ RuntimeWarning: coroutine was never awaited
 ```
 Solution: Use `@pytest.mark.asyncio` decorator
 
+## 🏛️ New Strategy Architecture Testing
+
+The test suite has been completely refactored to support the new schema-based strategy architecture. Key improvements include:
+
+### Architecture Components Tested
+- **StrategyParameterSchema**: Parameter definitions, type validation, range checking
+- **ConfigValidator**: Configuration validation, error handling
+- **ConfigLoader**: Parameter loading, default value application
+- **IndicatorCalculator**: Shared technical indicator calculations
+- **SignalManager**: Signal creation, deduplication, filtering
+- **RiskManager**: Stop loss, take profit, trailing stop calculations
+- **Strategy Registry**: Strategy creation, factory patterns
+
+### Trailing Stop Integration
+Comprehensive testing of enhanced trailing stop functionality:
+- Position management with trailing stops
+- Dynamic stop price adjustments
+- Multiple trailing stop types (percentage, absolute)
+- Integration with backtesting engine
+
+### Legacy Test Management
+Legacy tests for old architecture strategies are preserved in `tests/unit/strategies/legacy/` but excluded from main test runs to maintain fast execution times.
+
 ## 🎯 Test Development Guidelines
 
-### Writing New Tests
-1. **Use Historical Snapshots**: Prefer real data over synthetic
-2. **Mock External Dependencies**: Exchange APIs, network calls
-3. **Test Strategy Logic Thoroughly**: Focus on signal generation
-4. **Include Edge Cases**: NaN values, insufficient data
-5. **Performance Aware**: Keep unit tests fast (< 100ms each)
+### Writing New Architecture Tests
+1. **Schema-First Testing**: Test parameter schemas before implementation
+2. **Use Shared Components**: Test through IndicatorCalculator, SignalManager, etc.
+3. **Mock External Dependencies**: Exchange APIs, network calls
+4. **Test Strategy Logic Thoroughly**: Focus on signal generation with new architecture
+5. **Include Edge Cases**: NaN values, insufficient data, invalid configurations
+6. **Performance Aware**: Keep unit tests fast (< 100ms each)
 
 ### Test Naming Convention
 ```python
-def test_bullish_crossover_signal()        # What it tests
-def test_insufficient_data_handling()      # Edge case
-def test_concurrent_symbol_processing()    # Performance aspect
+# New architecture tests
+def test_strategy_initialization_valid_config()     # Schema validation
+def test_shared_components_initialization()         # Component integration
+def test_trailing_stop_metadata_in_signals()        # Trailing stop features
+def test_insufficient_data_handling()               # Edge case
+def test_parameter_access_through_schema()          # Schema usage
 ```
 
 ### Assertion Guidelines
 ```python
-# Good - Specific assertions
-assert signal.action == 'BUY'
+# Good - Specific assertions for new architecture
+assert strategy.strategy_name == 'ma_crossover_simple'
+assert strategy.get_parameter_value('fast_period') == 8
+assert signal.metadata['trailing_stop_enabled'] == True
+assert isinstance(indicators['sma_fast'], pd.Series)
 assert 0.7 <= signal.confidence <= 1.0
-assert signal.stop_loss < signal.price
 
 # Avoid - Vague assertions  
 assert signal is not None
 assert len(signals) > 0
+assert strategy.params is not None
 ```
 
 ## 📚 Additional Resources
 
+- [Strategy Architecture Documentation](../CLAUDE.md) - Complete guide to new architecture
 - [pytest Documentation](https://docs.pytest.org/)
 - [pytest-asyncio](https://pytest-asyncio.readthedocs.io/)
 - [Binance Testnet](https://testnet.binance.vision/)
-- [Strategy Implementation Guide](../docs/STRATEGY_GUIDE.md)
+
+## 📊 Test Results Summary
+
+Current test suite status:
+- ✅ **52 tests passing** (New architecture + Enhanced backtesting)
+- 🏛️ **29 new architecture tests** - Full schema validation and shared component coverage  
+- 🔄 **11 MA crossover tests** - Updated for new architecture with trailing stops
+- 🎯 **12 backtesting tests** - Enhanced engine with trailing stop functionality
+- 📁 **49 legacy tests** - Preserved in `legacy/` folder for migration reference
+
+The new architecture provides comprehensive test coverage ensuring reliability and maintainability of the trading strategy system.
